@@ -3,14 +3,17 @@ export type Source = "nse" | "mock";
 
 export interface Envelope<T> { payload: { data: T }; status: string; source?: Source; note?: string; }
 
-export interface SignalRow { Symbol: string; pChange: number; signalPct: number; signal: Signal; ts: number; }
-export interface QuoteRow { Symbol: string; ltp: number; prevClose: number; pChange: number; }
-export interface BoostRow extends QuoteRow { rFactor: number; }
-export interface PowerRow extends QuoteRow { turnover: number; }
-export interface LevelRow extends QuoteRow { diff: number; }
+// Market Pulse rows use the real tradefinder flat param_N schema. Meaning per widget:
+//   breakout_beacon:      param_0=%chg  param_1=signal%   param_2="BULL"/"BEAR"  param_3=epoch(s)
+//   intraday_boost /      param_0=LTP   param_1=prevClose param_2=%chg           param_3=R.Factor
+//     top_gainers/losers
+//   high_powered_stocks:  param_0=LTP   param_1=prevClose param_2=%chg           param_3=turnover(₹Cr)
+//   top_level/low_level:  param_0=LTP   param_1=prevClose param_2=%chg           param_3=diff
+export interface BeaconRow { Symbol: string; param_0: number; param_1: number; param_2: Signal; param_3: number; }
+export interface ParamRow { Symbol: string; param_0: number; param_1: number; param_2: number; param_3: number; }
 export interface MarketPulse {
-  breakout_beacon: SignalRow[]; intraday_boost: BoostRow[]; top_gainers: BoostRow[]; top_losers: BoostRow[];
-  high_powered_stocks: PowerRow[]; top_level_stocks: LevelRow[]; low_level_stocks: LevelRow[];
+  breakout_beacon: BeaconRow[]; intraday_boost: ParamRow[]; top_gainers: ParamRow[]; top_losers: ParamRow[];
+  high_powered_stocks: ParamRow[]; top_level_stocks: ParamRow[]; low_level_stocks: ParamRow[];
 }
 
 export interface SectorStock { Symbol: string; ltp: number; prevClose: number; pChange: number; rFactor: number; weight: number; }
