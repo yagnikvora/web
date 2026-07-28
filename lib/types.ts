@@ -1,5 +1,6 @@
 export type Signal = "BULL" | "BEAR";
-export type Source = "nse" | "mock";
+// 'stale' = real NSE data from an earlier fetch, re-served while NSE is unreachable.
+export type Source = "nse" | "mock" | "stale";
 
 export interface Envelope<T> { payload: { data: T }; status: string; source?: Source; note?: string; }
 
@@ -16,7 +17,7 @@ export interface MarketPulse {
   high_powered_stocks: ParamRow[]; top_level_stocks: ParamRow[]; low_level_stocks: ParamRow[];
 }
 
-export interface SectorStock { Symbol: string; ltp: number; prevClose: number; pChange: number; rFactor: number; weight: number; }
+export interface SectorStock { Symbol: string; ltp: number; open: number; prevClose: number; pChange: number; rFactor: number; weight: number; }
 export type SectorScope = Record<string, SectorStock[]>;
 
 export interface MoverStock { Symbol: string; per_change: number; per_to_index: number; point_to_index: number; }

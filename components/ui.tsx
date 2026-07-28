@@ -29,6 +29,12 @@ export const Pct = ({ v, suffix = "%" }: { v: number; suffix?: string }) => (
 );
 
 export function SourceBadge({ source }: { source?: string }) {
+  if (source === "stale")
+    return (
+      <span className="text-[11px] px-2.5 py-1 rounded-full border text-sky-300 border-sky-800/70">
+        LAST LIVE · NSE
+      </span>
+    );
   const live = source === "nse";
   return (
     <span className={`text-[11px] px-2.5 py-1 rounded-full border ${live ? "text-bull border-emerald-800" : "text-amber-400 border-amber-700/50"}`}>
