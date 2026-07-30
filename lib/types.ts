@@ -24,6 +24,22 @@ export interface MoverStock { Symbol: string; per_change: number; per_to_index: 
 export interface IndexMover { index: string; level: number; points: number | null; pct: number | null; gainers: number; losers: number; stocks: MoverStock[]; }
 
 export interface OiRow { strike: number; ceOI: number; peOI: number; ceChg: number; peChg: number; }
+
+// ---- Option Clock ----
+// The feed's own shape: snapshot timestamp -> { "NFO:<underlying><expiry code><strike><CE|PE>": OI }
+// plus an "atm" entry. CE legs are the bears, PE legs the bulls.
+export type OiSnapshot = Record<string, number>;
+export type OiSnapshots = Record<string, OiSnapshot>;
+// [epoch(s) of the expiry day at 15:30 IST, weekly | monthly]
+export type RunningExpiry = [number, "wk" | "mo"];
+// One reading of the PCR trend: [epoch(s), PCR, total put OI, total call OI]
+export type PcrPoint = [number, number, number, number];
+export interface OptionClock {
+  expiries: RunningExpiry[];
+  live: OiSnapshots;   // the current snapshot, for totals and PCR
+  window: OiSnapshots; // both ends of the session, for the clock itself
+  pcr: PcrPoint[];     // PCR every 10 minutes through the session
+}
 export interface OptionAnalysis { symbol: string; spot: number; atm: number; expiry: string | null; expiries: string[]; rows: OiRow[]; pcr: number; maxPainStrike: number; }
 
 export interface ScanRow { Symbol: string; pChange: number; price: number; signal?: Signal; when: string; score?: number; }
