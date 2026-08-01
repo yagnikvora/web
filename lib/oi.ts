@@ -17,7 +17,7 @@ export interface StrikeRow {
 }
 
 /** Strike and side of a contract key, or null for anything else in the map ("atm"). */
-export function parseContract(key: string): { strike: number; side: "CE" | "PE" } | null {
+function parseContract(key: string): { strike: number; side: "CE" | "PE" } | null {
   const m = CONTRACT.exec(key);
   return m ? { strike: Number(m[1]), side: m[2] as "CE" | "PE" } : null;
 }
@@ -63,31 +63,45 @@ export const atmOf = (snap: OiSnapshot | undefined) => snap?.atm ?? 0;
 
 /* ---------- session clock ---------- */
 
-export const IST_OFFSET_S = 330 * 60;
-export const SESSION_START_MIN = 9 * 60 + 15;
-export const SESSION_END_MIN = 15 * 60 + 30;
+const IST_OFFSET_S = 330 * 60;
+const SESSION_START_MIN = 9 * 60 + 15;
+const SESSION_END_MIN = 15 * 60 + 30;
 
-/** Epoch (s) of 09:15 IST on the day `nowMs` falls in. */
-export function sessionOpen(nowMs = Date.now()): number {
-  const ist = new Date(nowMs + IST_OFFSET_S * 1000);
-  const midnight = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) / 1000 - IST_OFFSET_S;
-  return midnight + SESSION_START_MIN * 60;
+
+/** The IST calendar day an instant falls in, YYYY-MM-DD. */
+export const istDay = (nowMs = Date.now()) =>
+  new Date(nowMs + IST_OFFSET_S * 1000).toISOString().slice(0, 10);
+
+/** Epoch (s) of 09:15 IST on a given IST calendar day. */
+function dayOpen(day: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  return Date.UTC(y, m - 1, d) / 1000 - IST_OFFSET_S + SESSION_START_MIN * 60;
 }
-export const sessionClose = (nowMs = Date.now()) =>
-  sessionOpen(nowMs) + (SESSION_END_MIN - SESSION_START_MIN) * 60;
+const dayClose = (day: string) => dayOpen(day) + (SESSION_END_MIN - SESSION_START_MIN) * 60;
 
 /**
- * The session's slot times for a step: 09:15, 09:25, … 15:25, then 15:30. Mirrors
+ * A day's slot times for a step: 09:15, 09:25, … 15:25, then 15:30. Mirrors
  * sessionGrid() in api/src/oiclock.ts — the close is appended rather than stepped to,
  * because the trading day isn't a whole number of ten-minute steps and the last reading
  * of the day is the one most worth a row.
  */
-export function sessionGrid(step: number, nowMs = Date.now()): number[] {
-  const open = sessionOpen(nowMs), close = sessionClose(nowMs);
+export function sessionGrid(step: number, day = istDay()): number[] {
+  const open = dayOpen(day), close = dayClose(day);
   const out: number[] = [];
   for (let t = open; t < close; t += step) out.push(t);
   out.push(close);
   return out;
+}
+
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Today" for the current session, otherwise "Thu, 30 Jul". */
+export function dayLabel(day: string, nowMs = Date.now()): string {
+  if (day === istDay(nowMs)) return "Today";
+  const [y, m, d] = day.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d));
+  return `${DOW[at.getUTCDay()]}, ${d} ${MONTHS[m - 1]}`;
 }
 
 /** "09:15" for an epoch, read in IST whatever timezone the browser is in. */
@@ -113,7 +127,6 @@ export function expLabel(epochS: number, nowMs = Date.now()): { date: string; aw
   return { date, away };
 }
 
-export const expiryOf = (list: RunningExpiry[], epoch: number) => list.find(([e]) => e === epoch) ?? list[0];
 
 /** Compact axis/label numbers: 144118 -> "144.1k". */
 export const compact = (n: number) => {

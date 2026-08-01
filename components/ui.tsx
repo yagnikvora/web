@@ -1,5 +1,4 @@
 import { ReactNode } from "react";
-import { fmt, signCls } from "@/lib/format";
 import type { Signal } from "@/lib/types";
 
 export function Panel({ title, badge, right, children, className = "" }: {
@@ -24,15 +23,17 @@ export const Pill = ({ signal }: { signal: Signal }) => (
   <span className={`pill ${signal === "BULL" ? "pill-bull" : "pill-bear"}`}>{signal}</span>
 );
 
-export const Pct = ({ v, suffix = "%" }: { v: number; suffix?: string }) => (
-  <span className={signCls(v)}>{v >= 0 ? "+" : ""}{fmt(v)}{suffix}</span>
-);
-
 export function SourceBadge({ source }: { source?: string }) {
   if (source === "stale")
     return (
       <span className="text-[11px] px-2.5 py-1 rounded-full border text-sky-300 border-sky-800/70">
         LAST LIVE · NSE
+      </span>
+    );
+  if (source === "upstox")
+    return (
+      <span className="text-[11px] px-2.5 py-1 rounded-full border text-bull border-emerald-800">
+        LIVE · UPSTOX
       </span>
     );
   const live = source === "nse";

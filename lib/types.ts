@@ -1,6 +1,7 @@
 export type Signal = "BULL" | "BEAR";
-// 'stale' = real NSE data from an earlier fetch, re-served while NSE is unreachable.
-export type Source = "nse" | "mock" | "stale";
+// 'nse'/'upstox' = read live from that provider. 'stale' = real data from an earlier
+// fetch, re-served while the upstream is unreachable. 'mock' = invented demo data.
+export type Source = "nse" | "upstox" | "mock" | "stale";
 
 export interface Envelope<T> { payload: { data: T }; status: string; source?: Source; note?: string; }
 
@@ -23,8 +24,6 @@ export type SectorScope = Record<string, SectorStock[]>;
 export interface MoverStock { Symbol: string; per_change: number; per_to_index: number; point_to_index: number; }
 export interface IndexMover { index: string; level: number; points: number | null; pct: number | null; gainers: number; losers: number; stocks: MoverStock[]; }
 
-export interface OiRow { strike: number; ceOI: number; peOI: number; ceChg: number; peChg: number; }
-
 // ---- Option Clock ----
 // The feed's own shape: snapshot timestamp -> { "NFO:<underlying><expiry code><strike><CE|PE>": OI }
 // plus an "atm" entry. CE legs are the bears, PE legs the bulls.
@@ -36,11 +35,44 @@ export type RunningExpiry = [number, "wk" | "mo"];
 export type PcrPoint = [number, number, number, number];
 export interface OptionClock {
   expiries: RunningExpiry[];
-  live: OiSnapshots;   // the current snapshot, for totals and PCR
+  days: string[];      // trading days held in the store, newest first
+  day: string;         // the day this payload describes, YYYY-MM-DD IST
+  live: OiSnapshots;   // latest snapshot of that day, for totals and PCR
   window: OiSnapshots; // both ends of the session, for the clock itself
   pcr: PcrPoint[];     // PCR every 10 minutes through the session
 }
-export interface OptionAnalysis { symbol: string; spot: number; atm: number; expiry: string | null; expiries: string[]; rows: OiRow[]; pcr: number; maxPainStrike: number; }
+
+// ---- Option Apex ----
+// [epoch(s), open, high, low, close] — one intraday candle of the index.
+export type Candle = [number, number, number, number, number];
+export interface ApexChart {
+  script: string; tf: number;
+  day: string;          // the IST trading day these candles describe
+  candles: Candle[];
+  last: number; prevClose: number | null;
+}
+// [epoch(s) of the bucket, expiry, net money flux in ₹]
+export type FluxPoint = [number, string, number];
+export interface ApexFlux {
+  day: string;
+  step: number;   // bucket width actually used, seconds
+  slot: number;   // the option-candle resolution — buckets can be no finer
+  points: FluxPoint[];
+  ceFlow: number; peFlow: number; // session totals, ₹
+  missing: number;                // buckets the feed had no candles for (1 = the opening baseline)
+}
+export interface ApexDials {
+  pcr: number; pcrScore: number; sentiment: number;
+  /** [epoch(s), pcr] through the day, from Upstox. Empty if unavailable. */
+  pcrSeries: [number, number][];
+  pcrBucketMinutes: number;
+  /** Why there is no trend, when there isn't. The ratio itself is unaffected. */
+  pcrTrendNote?: string;
+  netFlow: number; grossFlow: number;
+  bulls: number; bears: number;
+  spot: number; ts: number; day: string;
+  buckets: number; // flux readings behind the sentiment dial
+}
 
 export interface ScanRow { Symbol: string; pChange: number; price: number; signal?: Signal; when: string; score?: number; }
 export type ScannerGroups = Record<string, ScanRow[]>;

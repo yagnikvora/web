@@ -1,13 +1,16 @@
 // Server-side loader for Option Clock.
 //
-// The three upstream endpoints are the real feed's, params and all: base64 JSON in a
-// ?data= query. This is the one place that encoding lives, shared by the server render
-// and the same-origin proxy the page polls.
+// The upstream endpoints are the real feed's, params and all: base64 JSON in a ?data=
+// query. This is the one place that encoding lives, shared by the server render and the
+// same-origin proxy the page polls.
 
-import { sessionClose, sessionOpen } from "./oi";
+import { istDay } from "./oi";
 import type { OptionClock, PcrPoint, RunningExpiry, OiSnapshots } from "./types";
 
 const BASE = process.env.API_BASE || process.env.NEXT_PUBLIC_API_BASE || "http://localhost:4100";
+
+/** The trend's row spacing. Ten minutes, matching the real page's reading cadence. */
+export const PCR_STEP = 600;
 
 const encode = (o: Record<string, string | number>) => Buffer.from(JSON.stringify(o)).toString("base64");
 
@@ -25,23 +28,25 @@ export interface ClockLoad extends OptionClock {
   note?: string;
 }
 
-/** The PCR trend's row spacing, in seconds. */
-export const PCR_STEP = 600;
-
 /**
- * Everything one view of the clock needs. The expiry list comes first because the OI
- * calls can't be made without one — the same order the real page fires them in.
+ * Everything one view of the clock needs, for one trading day.
  *
- * The clock always reads over the whole session; the three calls share one upstream
- * chain fetch, so this costs no more than a single one.
+ * The expiry list comes first because the OI calls can't be made without one — the same
+ * order the real page fires them in. `day` is passed down rather than a time window: the
+ * API derives the session bounds from it, so a past day reads entirely out of the store
+ * and never asks NSE for a chain that would describe today instead.
  */
-export async function loadClock(script: string, exp?: string): Promise<ClockLoad> {
+export async function loadClock(script: string, exp?: string, day?: string): Promise<ClockLoad> {
   const expiries = await call<RunningExpiry[]>("get_running_expiry", { script });
-  const params = { script, exp: exp ?? "" };
+  const base = { script, exp: exp ?? "" };
+  const days = await call<string[]>("trading_days", base).catch(() => [] as string[]);
+  const on = day || days[0] || istDay();
+  const forDay = { ...base, day: on };
+
   const [live, window, pcr] = await Promise.all([
-    call<OiSnapshots>("live_oi", params),
-    call<OiSnapshots>("index_analysis", { ...params, ts1: String(sessionOpen()), ts2: String(sessionClose()) }),
-    call<PcrPoint[]>("pcr_series", { ...params, step: String(PCR_STEP) }),
+    call<OiSnapshots>("live_oi", forDay),
+    call<OiSnapshots>("index_analysis", forDay),
+    call<PcrPoint[]>("pcr_series", { ...forDay, step: PCR_STEP }),
   ]);
-  return { expiries, live, window, pcr };
+  return { expiries, days: days.length ? days : [on], day: on, live, window, pcr };
 }

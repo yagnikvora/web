@@ -4,7 +4,9 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import EChart from "@/components/EChart";
 import LiveClock from "@/components/LiveClock";
 import { isMarketOpen, REFRESH_MS } from "@/lib/live";
-import { atmOf, bounds, expLabel, expParam, groupIN, istTime, ladder, sessionGrid, totals } from "@/lib/oi";
+import {
+  atmOf, bounds, dayLabel, expLabel, expParam, groupIN, istDay, istTime, ladder, sessionGrid, totals,
+} from "@/lib/oi";
 import { clockOption, distributionOption, netOption, BEAR, BULL } from "./charts";
 import { PCR_STEP, type ClockLoad } from "@/lib/optionclock";
 import type { PcrPoint, RunningExpiry } from "@/lib/types";
@@ -167,11 +169,11 @@ function PcrTrend({ rows, step }: { rows: PcrRow[]; step: number }) {
 
 /* ---------- page ---------- */
 
-interface Sel { script: string; exp: number }
+interface Sel { script: string; exp: number; day: string }
 
 export default function OptionClockClient({ initial, script }: { initial: ClockLoad; script: string }) {
   const [data, setData] = useState<ClockLoad>(initial);
-  const [sel, setSel] = useState<Sel>({ script, exp: initial.expiries[0]?.[0] ?? 0 });
+  const [sel, setSel] = useState<Sel>({ script, exp: initial.expiries[0]?.[0] ?? 0, day: initial.day });
   const [updatedAt, setUpdatedAt] = useState(Date.now());
   const [open, setOpen] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -183,7 +185,7 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
     let alive = true;
     const load = async () => {
       try {
-        const q = new URLSearchParams({ script: sel.script, exp: sel.exp ? expParam(sel.exp) : "" });
+        const q = new URLSearchParams({ script: sel.script, exp: sel.exp ? expParam(sel.exp) : "", day: sel.day });
         const res = await fetch(`/api/option-clock?${q}`, { cache: "no-store" });
         const j = await res.json();
         if (!alive) return;
@@ -198,8 +200,9 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
     if (first.current) first.current = false;
     else load();
 
-    // Outside trading hours OI is fixed for the day, so there is nothing to poll for.
-    if (!isMarketOpen()) return () => { alive = false; };
+    // A closed day never changes, and outside trading hours today's OI is fixed too —
+    // either way there is nothing to poll for.
+    if (sel.day !== istDay() || !isMarketOpen()) return () => { alive = false; };
     const id = setInterval(load, REFRESH_MS);
     return () => { alive = false; clearInterval(id); };
   }, [sel]);
@@ -241,14 +244,14 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
   const pcrRows = useMemo<PcrRow[]>(() => {
     const byTs = new Map<number, PcrPoint>((data.pcr ?? []).map((p) => [p[0], p]));
     let prev: number | null = null;
-    return sessionGrid(PCR_STEP).map((ts) => {
+    return sessionGrid(PCR_STEP, data.day).map((ts) => {
       const p = byTs.get(ts);
       if (!p) return { ts, pcr: null, bulls: 0, bears: 0, chg: null };
       const row: PcrRow = { ts, pcr: p[1], bulls: p[2], bears: p[3], chg: prev == null ? null : +(p[1] - prev).toFixed(2) };
       prev = p[1];
       return row;
     });
-  }, [data.pcr]);
+  }, [data.pcr, data.day]);
 
   return (
     <div className="min-h-screen">
@@ -257,6 +260,13 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
         <img src={`${CDN}/images/LIVE.webp?w=96&q=100`} className="w-[50px] h-[25px]" alt="LIVE" />
         <LiveClock at={updatedAt} open={open} />
         <div className="ml-auto flex items-center gap-3">
+          <Dropdown
+            label="Day:"
+            value={sel.day}
+            options={data.days}
+            render={(d) => dayLabel(d)}
+            onPick={(d) => setSel((p) => ({ ...p, day: d }))}
+          />
           <Dropdown
             label="Index:"
             value={sel.script}
