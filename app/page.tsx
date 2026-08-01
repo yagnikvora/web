@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BRAND } from "@/lib/brand";
 
 const CARDS: { title: string; desc: string; href: string; tag: string }[] = [
   { title: "Market Pulse", desc: "Real-time momentum, breakout & power scanners for F&O stocks.", href: "/market-pulse", tag: "Stocks" },
@@ -15,11 +16,8 @@ export default function Home() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-4xl font-extrabold tracking-tight">Find the best trades.</h1>
-        <p className="text-muted mt-2 max-w-2xl">
-          A real-time market-analysis workspace for NSE stocks, indices and F&amp;O — momentum scanners,
-          option-OI analytics, sector heatmaps and institutional flows, all in one place.
-        </p>
+        <h1 className="text-4xl font-extrabold tracking-tight">{BRAND.tagline}</h1>
+        <p className="text-muted mt-2 max-w-2xl">{BRAND.description}</p>
       </div>
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {CARDS.map((c) => (

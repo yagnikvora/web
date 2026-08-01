@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useLiveData } from "@/lib/live";
 import LiveClock from "@/components/LiveClock";
 import { toTreemap, treemapOption, barOption, TREEMAP_ONLY } from "./charts";
+import { Bulb, Play } from "@/components/icons";
 import SectorTables, { sectorAnchor } from "./SectorTables";
 import type { EChartsType } from "echarts";
 import type { SectorScope } from "@/lib/types";
@@ -19,7 +20,6 @@ const ReactECharts = dynamic(() => import("echarts-for-react"), {
   ),
 });
 
-const CDN = "https://tradefinder.b-cdn.net/assets";
 
 // Click params we care about: a bar gives `name`; a treemap tile gives the path
 // [root, sector, stock], so the sector is looked up along it.
@@ -77,11 +77,11 @@ export default function SectorScopeClient({ data: initial }: { data: SectorScope
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5">
         <h2 className="flex items-center text-[28px] font-extrabold leading-tight">
           Sector Scope
-          <img src={`${CDN}/images/box-icon/BULB.webp?w=64&q=75`} className="ml-2 w-[25px] h-[25px]" alt="" />
+          <Bulb className="ml-2 w-[20px] h-[20px] text-amber-300/80" />
         </h2>
         <button type="button" className="flex items-center gap-1.5 text-[#cfd3dc] hover:text-white transition-colors">
           <span className="text-[17px] font-semibold underline underline-offset-4">How to use</span>
-          <img src={`${CDN}/images/playButton.webp?w=32&q=100`} className="w-[15px] h-[15px]" alt="" />
+          <Play className="w-[15px] h-[15px] text-accent" />
         </button>
         <LiveClock at={updatedAt} open={open} />
       </div>

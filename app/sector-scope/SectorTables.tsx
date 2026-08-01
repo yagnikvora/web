@@ -2,36 +2,21 @@
 
 import { useMemo, useState } from "react";
 import { tvLink } from "@/lib/format";
+import { Bookmark, ChartLink, LiveBadge, SymbolAvatar } from "@/components/icons";
 import type { SectorStock } from "@/lib/types";
 
-const CDN = "https://tradefinder.b-cdn.net/assets";
 
 // Stable DOM id per sector so a click on the treemap or a strength bar can jump
 // straight to that sector's table.
 export const sectorAnchor = (name: string) => `sector-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
-// exact palette lifted from tradefinder.in computed styles
+// Palette measured from the reference design.
 const GREEN_BG = "#b9e3a8", GREEN_FG = "#46642e";
 const RED_BG = "#fba8a8", RED_FG = "#b3150c";
 const UP = "#2ec76a", DOWN = "#e8564f";
 
-function SymbolIcon({ sym }: { sym: string }) {
-  const [err, setErr] = useState(false);
-  if (err)
-    return (
-      <span className="w-[25px] h-[25px] rounded-full bg-white/15 shrink-0 inline-flex items-center justify-center text-[11px] font-bold">
-        {sym[0]}
-      </span>
-    );
-  return (
-    <img
-      src={`${CDN}/fno_symbol_curved/${encodeURIComponent(sym)}.webp?w=64&q=100`}
-      onError={() => setErr(true)}
-      className="w-[25px] h-[25px] rounded-full bg-white shrink-0"
-      alt=""
-    />
-  );
-}
+const SymbolIcon = ({ sym }: { sym: string }) =>
+  <SymbolAvatar symbol={sym} className="w-[25px] h-[25px] text-[10px]" />;
 
 const PctChip = ({ v }: { v: number }) => (
   <span
@@ -131,7 +116,7 @@ function SectorTable({ name, stocks, active }: { name: string; stocks: SectorSto
       <div className="flex items-center justify-between gap-3 mb-[16px]">
         <div className="flex items-center gap-3 min-w-0">
           <h4 className="text-[17px] font-bold tracking-wide whitespace-nowrap">{name}</h4>
-          <img src={`${CDN}/images/LIVE.webp?w=96&q=100`} className="w-[46px] h-[23px]" alt="LIVE" />
+          <LiveBadge />
         </div>
         <div className="flex items-center bg-[#27272a] rounded-[10px] h-[38px] w-[240px] max-w-[52%] px-3 shrink-0">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#8a8aa0] mr-2">
@@ -188,10 +173,10 @@ function SectorTable({ name, stocks, active }: { name: string; stocks: SectorSto
                 <td className="px-[10px] py-[11px]">
                   <div className="flex items-center gap-1">
                     <a target="_blank" rel="noopener noreferrer" href={tvLink(s.Symbol)} title="Open Chart">
-                      <img src={`${CDN}/images/chart_logo.webp?w=64&q=100`} className="w-[23px] h-[23px]" alt="" />
+                      <ChartLink className="w-[18px] h-[18px] text-muted hover:text-white transition-colors" title="Open chart" />
                     </a>
-                    <img src={`${CDN}/images/bookmark.webp?w=64&q=100`} title="Add to Watchlist"
-                      className="w-[19px] h-[23px] cursor-pointer" alt="" />
+                    <Bookmark title="Add to Watchlist"
+                      className="w-[17px] h-[19px] ml-2 text-muted hover:text-accent transition-colors cursor-pointer" />
                   </div>
                 </td>
                 <td className="px-[10px] py-[11px] text-[14px] font-bold tabular-nums">{s.prevClose}</td>

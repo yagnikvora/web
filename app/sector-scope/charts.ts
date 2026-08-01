@@ -1,4 +1,4 @@
-// Chart options for Sector Scope, matched to the real tradefinder.in widgets
+// Chart options for the sector heatmap widgets
 // (treemap + sector-strength bars). Both are ECharts; the option shapes below
 // mirror the ones the live site feeds its charts.
 import type { SectorScope, SectorStock } from "@/lib/types";

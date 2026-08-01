@@ -5,7 +5,7 @@ export type Source = "nse" | "upstox" | "mock" | "stale";
 
 export interface Envelope<T> { payload: { data: T }; status: string; source?: Source; note?: string; }
 
-// Market Pulse rows use the real tradefinder flat param_N schema. Meaning per widget:
+// Scanner rows use a flat param_N schema. Meaning per widget:
 //   breakout_beacon:      param_0=%chg  param_1=signal%   param_2="BULL"/"BEAR"  param_3=epoch(s)
 //   intraday_boost /      param_0=LTP   param_1=prevClose param_2=%chg           param_3=R.Factor
 //     top_gainers/losers

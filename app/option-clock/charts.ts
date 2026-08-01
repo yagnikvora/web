@@ -1,4 +1,4 @@
-// ECharts options for Option Clock, matched to the real tradefinder.in widgets.
+// ECharts options for the OI clock widgets.
 import { compact, type StrikeRow } from "@/lib/oi";
 
 // Bears are the calls, bulls the puts — the same two colours the live page legends with.

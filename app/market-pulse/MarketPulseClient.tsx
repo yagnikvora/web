@@ -4,11 +4,14 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { tvLink } from "@/lib/format";
 import { useLiveData } from "@/lib/live";
 import LiveClock from "@/components/LiveClock";
+import {
+  Bulb, Play, Bookmark, ChartLink, Caret, Bullish, Bearish, Icon, LiveBadge, SymbolAvatar,
+  type IconName,
+} from "@/components/icons";
 import type { MarketPulse, BeaconRow, ParamRow } from "@/lib/types";
 
-const CDN = "https://tradefinder.b-cdn.net/assets";
 
-// exact palette lifted from tradefinder.in computed styles
+// Palette measured from the reference design.
 const GREEN_BG = "#b9e3a8", GREEN_FG = "#46642e";
 const RED_BG = "#fba8a8", RED_FG = "#b3150c";
 
@@ -17,23 +20,8 @@ const fmtTime = (epoch: number) =>
 
 /* ---------- cell renderers ---------- */
 
-function SymbolIcon({ sym }: { sym: string }) {
-  const [err, setErr] = useState(false);
-  if (err)
-    return (
-      <span className="w-[25px] h-[25px] rounded-full bg-white/15 mr-3 shrink-0 inline-flex items-center justify-center text-[11px] font-bold">
-        {sym[0]}
-      </span>
-    );
-  return (
-    <img
-      src={`${CDN}/fno_symbol_curved/${encodeURIComponent(sym)}.webp?w=64&q=100`}
-      onError={() => setErr(true)}
-      className="w-[25px] h-[25px] rounded-full bg-white mr-3 shrink-0"
-      alt=""
-    />
-  );
-}
+const SymbolIcon = ({ sym }: { sym: string }) =>
+  <SymbolAvatar symbol={sym} className="w-[25px] h-[25px] text-[10px] mr-3" />;
 
 const SymbolCell = ({ sym }: { sym: string }) => (
   <a target="_blank" rel="noopener noreferrer" href={tvLink(sym)} className="flex items-center text-[15px] leading-[13px] font-bold hover:underline">
@@ -45,9 +33,9 @@ const SymbolCell = ({ sym }: { sym: string }) => (
 const IconsCell = ({ sym }: { sym: string }) => (
   <div className="flex items-center">
     <a target="_blank" rel="noopener noreferrer" href={tvLink(sym)} title="Open Chart">
-      <img src={`${CDN}/images/chart_logo.webp?w=64&q=100`} className="w-[25px] h-[25px]" alt="" />
+      <ChartLink className="w-[19px] h-[19px] text-muted hover:text-white transition-colors" title="Open chart" />
     </a>
-    <img src={`${CDN}/images/bookmark.webp?w=64&q=100`} title="Add to Watchlist" className="w-[21px] h-[25px] ml-1 cursor-pointer" alt="" />
+    <Bookmark className="w-[17px] h-[19px] ml-2 text-muted hover:text-accent transition-colors cursor-pointer" title="Add to Watchlist" />
   </div>
 );
 
@@ -69,9 +57,10 @@ const BullBearPill = ({ bull }: { bull: boolean }) => (
   </div>
 );
 
-const ArrowCell = ({ bull }: { bull: boolean }) => (
-  <img src={`${CDN}/intraday_boost/${bull ? "Bullish" : "Bearish"}.webp?w=64&q=100`} className="w-[25px] h-[25px] rounded-full" alt={bull ? "bullish" : "bearish"} />
-);
+const ArrowCell = ({ bull }: { bull: boolean }) =>
+  bull
+    ? <Bullish className="w-[22px] h-[22px] text-bull" title="bullish" />
+    : <Bearish className="w-[22px] h-[22px] text-bear" title="bearish" />;
 
 const Num = ({ children }: { children: ReactNode }) => (
   <span className="text-[15px] leading-[13px] font-bold">{children}</span>
@@ -86,13 +75,13 @@ type Col<T> = {
   render: (r: T) => ReactNode;
 };
 
-type Filter = { icon: string; label: string };
+type Filter = { icon: IconName; label: string };
 
 type Dir = "Neutral" | "Bullish" | "Bearish";
-const DIR_OPTS: { label: Dir; icon: string }[] = [
-  { label: "Neutral", icon: `${CDN}/intraday_boost/Neutral.webp` },
-  { label: "Bullish", icon: `${CDN}/intraday_boost/Bullish.webp` },
-  { label: "Bearish", icon: `${CDN}/intraday_boost/Bearish.webp` },
+const DIR_OPTS: { label: Dir; icon: IconName; tint: string }[] = [
+  { label: "Neutral", icon: "neutral", tint: "text-muted" },
+  { label: "Bullish", icon: "bullish", tint: "text-bull" },
+  { label: "Bearish", icon: "bearish", tint: "text-bear" },
 ];
 
 // Interactive direction dropdown (Neutral = all, Bullish = %≥0, Bearish = %<0).
@@ -113,9 +102,9 @@ function DirDropdown({ value, onChange }: { value: Dir; onChange: (d: Dir) => vo
         onClick={() => setOpen((v) => !v)}
         className="flex items-center bg-[#333333] rounded-[10px] p-2 w-fit cursor-pointer"
       >
-        <img src={`${cur.icon}?w=64&q=100`} className="w-[25px] h-[25px]" alt="" />
+        <Icon name={cur.icon} className={`w-[22px] h-[22px] ${cur.tint}`} />
         <span className="ml-2 text-[14px] whitespace-nowrap">{cur.label}&nbsp;</span>
-        <img src={`${CDN}/intraday_boost/down.webp?w=32&q=100`} className={`w-[12px] h-[12px] ml-3 transition-transform ${open ? "rotate-180" : ""}`} alt="" />
+        <Caret className={`w-[13px] h-[13px] ml-3 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="absolute z-30 mt-1 min-w-[160px] rounded-[10px] border border-[#555] bg-[#232323] shadow-lg py-1">
@@ -126,7 +115,7 @@ function DirDropdown({ value, onChange }: { value: Dir; onChange: (d: Dir) => vo
               onClick={() => { onChange(o.label); setOpen(false); }}
               className={`flex items-center w-full text-left px-3 py-2 text-[14px] hover:bg-white/10 ${o.label === value ? "bg-white/[0.06]" : ""}`}
             >
-              <img src={`${o.icon}?w=64&q=100`} className="w-[22px] h-[22px] mr-2" alt="" />
+              <Icon name={o.icon} className={`w-[20px] h-[20px] mr-2 ${o.tint}`} />
               {o.label}
             </button>
           ))}
@@ -137,9 +126,9 @@ function DirDropdown({ value, onChange }: { value: Dir; onChange: (d: Dir) => vo
 }
 
 function Widget<T extends { Symbol: string }>({
-  thumb, title, desc, filters, cols, rows, defaultDir = -1, initialSortCol, dirOf,
+  title, desc, filters, cols, rows, defaultDir = -1, initialSortCol, dirOf,
 }: {
-  thumb: string; title: string; desc: string; filters: Filter[]; cols: Col<T>[]; rows: T[];
+  title: string; desc: string; filters: Filter[]; cols: Col<T>[]; rows: T[];
   defaultDir?: 1 | -1; initialSortCol?: number; dirOf?: (r: T) => number;
 }) {
   const [q, setQ] = useState("");
@@ -170,16 +159,15 @@ function Widget<T extends { Symbol: string }>({
       {/* header */}
       <div className="flex items-start justify-between gap-3 px-[15px] pt-[12px]">
         <div className="flex items-center gap-3 min-w-0">
-          <img src={`${thumb}?w=256&q=100`} className="w-[90px] h-auto shrink-0" alt="" />
           <div className="min-w-0">
             <div className="flex items-center">
               <h4 className="text-[20px] font-bold leading-[25px] whitespace-nowrap">{title}</h4>
-              <img src={`${CDN}/images/box-icon/BULB.webp?w=48&q=100`} title={desc} className="w-[25px] h-[25px] ml-2 cursor-help" alt="" />
+              <Bulb className="w-[20px] h-[20px] ml-2 text-amber-300/80 cursor-help" title={desc} />
             </div>
             <div className="flex items-center mt-1 cursor-pointer w-fit">
               <span className="text-[16px] font-semibold underline mr-1.5 pb-[2px]">How to use</span>
-              <img src={`${CDN}/images/playButton.webp?w=48&q=100`} className="w-[20px] h-[20px]" alt="" />
-              <img src={`${CDN}/images/LIVE.webp?w=96&q=100`} className="w-[50px] h-[25px] ml-3" alt="LIVE" />
+              <Play className="w-[17px] h-[17px] text-accent" />
+              <LiveBadge className="ml-3" />
             </div>
           </div>
         </div>
@@ -206,9 +194,9 @@ function Widget<T extends { Symbol: string }>({
           .filter((f) => !["Neutral", "Bullish", "Bearish"].includes(f.label))
           .map((f, i) => (
             <div key={i} className="ml-[15px] mb-[10px] flex items-center bg-[#333333] rounded-[10px] p-2 w-fit cursor-pointer">
-              <img src={`${f.icon}?w=64&q=100`} className="w-[25px] h-[25px]" alt="" />
+              <Icon name={f.icon} className="w-[18px] h-[18px] text-muted" />
               <span className="ml-2 text-[14px]">{f.label}&nbsp;</span>
-              <img src={`${CDN}/intraday_boost/down.webp?w=32&q=100`} className="w-[12px] h-[12px] ml-3" alt="" />
+              <Caret className="w-[13px] h-[13px] ml-3 text-muted" />
             </div>
           ))}
       </div>
@@ -257,10 +245,8 @@ function Widget<T extends { Symbol: string }>({
 
 /* ---------- widget configs ---------- */
 
-const THUMB = `${CDN}/tradegini_table_thumbnails_tb`;
-const IB = `${CDN}/intraday_boost`;
 
-const sectorAll: Filter = { icon: `${IB}/sector.webp`, label: "All" };
+const sectorAll: Filter = { icon: "sectors", label: "All" };
 
 // breakout_beacon: p0=%chg, p1=signal%, p2=BULL/BEAR, p3=epoch(s)
 const bbCols: Col<BeaconRow>[] = [
@@ -320,22 +306,20 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Widget
-          thumb={`${THUMB}/breakout_beacon_light.webp`}
           title="BREAKOUT BEACON"
           desc="With BREAKOUT BEACON, unleash massive gains! Spot stocks surging with momentum as big players pile in."
-          filters={[{ icon: `${IB}/Neutral.webp`, label: "Neutral" }, sectorAll]}
+          filters={[{ icon: "neutral", label: "Neutral" }, sectorAll]}
           cols={bbCols}
           rows={data.breakout_beacon}
           initialSortCol={4}
           dirOf={(r) => (r.param_2 === "BULL" ? 1 : -1)}
         />
         <Widget
-          thumb={`${THUMB}/Intraday_boost_light.webp`}
           title="INTRADAY BOOST"
           desc="Spot the Rising Stars of Today's Market! Highlights stocks with a significant boost in activity vs the past 20 days."
           filters={[
-            { icon: `${IB}/Neutral.webp`, label: "Neutral" },
-            { icon: `${IB}/All.webp`, label: "All" },
+            { icon: "neutral", label: "Neutral" },
+            { icon: "sectors", label: "All" },
             sectorAll,
           ]}
           cols={boostCols}
@@ -343,7 +327,6 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
           dirOf={(r) => r.param_2}
         />
         <Widget
-          thumb={`${THUMB}/Top_level_stocks_light.webp`}
           title="TOP LEVEL STOCKS"
           desc="Stocks trading near their day's high, signaling a blend of strength and momentum."
           filters={[sectorAll]}
@@ -352,7 +335,6 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
           defaultDir={1}
         />
         <Widget
-          thumb={`${THUMB}/LOW_LEVEL_STOCKS_light.webp`}
           title="LOW LEVEL STOCKS"
           desc="Discover hidden market gems at the bottom! Unique opportunities to capitalize on shifts in momentum."
           filters={[sectorAll]}
@@ -361,7 +343,6 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
           defaultDir={1}
         />
         <Widget
-          thumb={`${THUMB}/Top_Gainer_light.webp`}
           title="TOP GAINERS"
           desc="Ride the Wave of Today's Winners! The stocks making the biggest leaps today."
           filters={[sectorAll]}
@@ -369,7 +350,6 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
           rows={data.top_gainers}
         />
         <Widget
-          thumb={`${THUMB}/Top_loser_light.webp`}
           title="TOP LOSERS"
           desc="Identify the Market's Biggest Retreats of the Day! Sometimes, today's losers can be tomorrow's winners."
           filters={[sectorAll]}
@@ -377,7 +357,6 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
           rows={data.top_losers}
         />
         <Widget
-          thumb={`${THUMB}/HIGH_POWER_STOCKS_light.webp`}
           title="HIGH POW. STOCKS"
           desc="Market's Most Electrifying Stocks! Stocks with the highest turnover in the cash segment."
           filters={[sectorAll]}

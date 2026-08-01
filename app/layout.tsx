@@ -3,12 +3,13 @@ import { Manrope } from "next/font/google";
 import "./globals.css";
 import TopTicker from "@/components/TopTicker";
 import NavBar from "@/components/NavBar";
+import { BRAND } from "@/lib/brand";
 
 const manrope = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 
 export const metadata: Metadata = {
-  title: "TradeFinder — Real-time Market Analysis",
-  description: "Find the best trades available for stocks and indices.",
+  title: `${BRAND.name} — ${BRAND.tagline}`,
+  description: BRAND.description,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

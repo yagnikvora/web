@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import EChart from "@/components/EChart";
+import { Bulb as BulbIcon, Play, LiveBadge } from "@/components/icons";
 import LiveClock from "@/components/LiveClock";
 import { isMarketOpen, REFRESH_MS } from "@/lib/live";
 import {
@@ -11,7 +12,6 @@ import { clockOption, distributionOption, netOption, BEAR, BULL } from "./charts
 import { PCR_STEP, type ClockLoad } from "@/lib/optionclock";
 import type { PcrPoint, RunningExpiry } from "@/lib/types";
 
-const CDN = "https://tradefinder.b-cdn.net/assets";
 
 const SCRIPTS: { script: string; label: string }[] = [
   { script: "NIFTY 50", label: "Nifty50" },
@@ -23,7 +23,7 @@ const SCRIPTS: { script: string; label: string }[] = [
 /* ---------- small pieces ---------- */
 
 const Bulb = ({ title }: { title: string }) => (
-  <img src={`${CDN}/images/box-icon/BULB.webp?w=48&q=100`} title={title} className="w-[22px] h-[22px] ml-2 cursor-help" alt="" />
+  <BulbIcon className="w-[19px] h-[19px] ml-2 text-amber-300/80 cursor-help" title={title} />
 );
 
 // The pill dropdowns in the page header: a quiet label, the value in bold, a caret.
@@ -257,7 +257,7 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
     <div className="min-h-screen">
       <div className="flex flex-wrap items-center gap-4 mb-4">
         <h1 className="text-[32px] font-extrabold leading-[44px]">Option Clock</h1>
-        <img src={`${CDN}/images/LIVE.webp?w=96&q=100`} className="w-[50px] h-[25px]" alt="LIVE" />
+        <LiveBadge />
         <LiveClock at={updatedAt} open={open} />
         <div className="ml-auto flex items-center gap-3">
           <Dropdown
@@ -305,7 +305,7 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
           right={
             <a href="#" onClick={(e) => e.preventDefault()} className="flex items-center ml-4 group">
               <span className="text-[15px] font-semibold underline mr-1.5">How to use</span>
-              <img src={`${CDN}/images/playButton.webp?w=48&q=100`} className="w-[18px] h-[18px]" alt="" />
+              <Play className="w-[16px] h-[16px] text-accent" />
             </a>
           }
         >
