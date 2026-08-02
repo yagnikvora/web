@@ -33,6 +33,10 @@ export const BRAND = {
  * edit to this table, not a hunt through the nav, the home page and eight headings.
  */
 export const MODULES: Record<string, { label: string; gloss: string }> = {
+  '/momentum-scanner': {
+    label: 'Momentum Scanner',
+    gloss: 'Institutional momentum score across every F&O stock, with the reasoning shown',
+  },
   '/market-pulse': { label: 'Market Pulse', gloss: 'Live momentum, breakout and power scanners' },
   '/insider-strategy': { label: 'Insider Strategy', gloss: 'Structure-based strategy scanners' },
   '/sector-scope': { label: 'Sector Scope', gloss: 'Sector strength heatmap' },

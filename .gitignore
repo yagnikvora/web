@@ -34,3 +34,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Isolated production build dir (NEXT_DIST_DIR), so a build cannot clobber a running dev server
+.next-*
