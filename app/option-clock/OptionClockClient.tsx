@@ -5,6 +5,7 @@ import EChart from "@/components/EChart";
 import { Bulb as BulbIcon, Play, LiveBadge } from "@/components/icons";
 import LiveClock from "@/components/LiveClock";
 import { isMarketOpen, REFRESH_MS } from "@/lib/live";
+import { useOutsideClose } from "@/lib/useOutsideClose";
 import {
   atmOf, bounds, dayLabel, expLabel, expParam, groupIN, istDay, istTime, ladder, sessionGrid, totals,
 } from "@/lib/oi";
@@ -33,12 +34,7 @@ function Dropdown<T>({ label, value, options, render, onPick }: {
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  useOutsideClose(open, ref, () => setOpen(false));
 
   return (
     <div ref={ref} className="relative">

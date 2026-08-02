@@ -1,11 +1,8 @@
 // Chart options for the sector heatmap widgets
 // (treemap + sector-strength bars). Both are ECharts; the option shapes below
 // mirror the ones the live site feeds its charts.
-import type { SectorScope, SectorStock } from "@/lib/types";
-
-// OTHERS is a catch-all bucket: the real page maps it but leaves it out of the
-// strength bars and the per-sector tables.
-export const TREEMAP_ONLY = new Set(["OTHERS"]);
+import { sectorStrength } from "@/lib/sectors";
+import type { SectorScope } from "@/lib/types";
 
 export interface TreeNode {
   name: string;
@@ -22,35 +19,6 @@ function score(pct: number, maxUp: number, maxDown: number): number {
   if (pct >= 0) return maxUp > 0 ? 40 + (60 * pct) / maxUp : 40;
   return maxDown > 0 ? -(40 + (60 * Math.abs(pct)) / maxDown) : -40;
 }
-
-// Sector strength, shown as a multiple ("7.05 x") exactly as the real widget labels it.
-//
-// It is the SUM of each stock's % move scaled by its R.Factor (relative volume), not an
-// average — the sum is deliberate. A 3% move on 5x normal volume says far more about
-// where money is rotating than the same move on a quiet tape, and a broad sector with
-// many participating names should outrank a narrow one. Their data shows that size
-// effect plainly (FMCG, 21 names, scores 7.05; CEMENT, 4 names, scores 0.32), which an
-// average would erase.
-//
-// R.Factor is SQUARED, which weights the calm majority down hard and lets the genuinely
-// agitated names carry the sector — the behaviour their ranking shows. Squaring only
-// pays off once R.Factor is itself accurate (it amplifies error just as readily as
-// signal); on an earlier volume-based R.Factor it scored worse than the unsquared form
-// and was correctly rejected. Against a live capture of all 15 of their sectors it now
-// wins clearly: Spearman 0.946 vs 0.904 unsquared.
-//
-// The divisor calibrates onto their scale. It's empirical and depends on our R.Factor
-// baseline — it shifts every bar's height equally and never changes the ordering.
-//
-// It therefore has to move whenever R.Factor's level does, and it moves by the SQUARE
-// because R.Factor enters squared: the 1.33 calibration added to rfac() in
-// api/src/services.ts scales every bar by 1.33² = 1.77, so 26.3 becomes 46.5 to leave
-// the bars where they were. Change one of these two constants and you must change the
-// other, or the strength axis silently drifts off their scale.
-const STRENGTH_DIVISOR = 46.5;
-
-const sectorStrength = (stocks: SectorStock[]) =>
-  +(stocks.reduce((a, s) => a + s.pChange * s.rFactor ** 2, 0) / STRENGTH_DIVISOR).toFixed(2);
 
 export function toTreemap(data: SectorScope): TreeNode[] {
   return Object.entries(data)

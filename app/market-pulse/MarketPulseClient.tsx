@@ -1,19 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { timeOfDay } from "@/lib/format";
 import { useLiveData } from "@/lib/live";
+import { rankSectors, sectorLabel, sectorMembership, type SectorRank } from "@/lib/sectors";
+import { useOutsideClose } from "@/lib/useOutsideClose";
 import LiveClock from "@/components/LiveClock";
 import { Caret, Icon, type IconName } from "@/components/icons";
+import { AllSectorsIcon, SectorIcon } from "@/components/sectorIcons";
 import {
   DataTable, Num, PctChip, RowIcons, SignalPill, SymbolCell, TableCard, TrendArrow, type Col,
 } from "@/components/table";
-import type { MarketPulse, BeaconRow, ParamRow } from "@/lib/types";
+import type { MarketPulse, BeaconRow, ParamRow, SectorScope } from "@/lib/types";
 
 
-/* ---------- generic widget ---------- */
+/* ---------- filter dropdowns ---------- */
 
-type Filter = { icon: IconName; label: string };
+/** The button-plus-menu both filters share. Only the trigger face and rows differ. */
+function Dropdown({ face, children, width = 160 }: {
+  face: (open: boolean) => ReactNode; children: (close: () => void) => ReactNode; width?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useOutsideClose(open, ref, () => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative ml-[15px] mb-[10px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center bg-[#333333] rounded-[10px] p-2 w-fit cursor-pointer"
+      >
+        {face(open)}
+        <Caret className={`w-[13px] h-[13px] ml-3 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          className="absolute z-30 mt-1 max-h-[360px] overflow-y-auto rounded-[10px] border border-[#555] bg-[#232323] shadow-lg py-1"
+          style={{ minWidth: width }}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ROW_CLASS = "flex items-center w-full text-left px-3 py-2 text-[14px] hover:bg-white/10";
 
 type Dir = "Neutral" | "Bullish" | "Bearish";
 const DIR_OPTS: { label: Dir; icon: IconName; tint: string }[] = [
@@ -22,80 +55,121 @@ const DIR_OPTS: { label: Dir; icon: IconName; tint: string }[] = [
   { label: "Bearish", icon: "bearish", tint: "text-bear" },
 ];
 
-// Interactive direction dropdown (Neutral = all, Bullish = %≥0, Bearish = %<0).
+// Direction filter: Neutral = all, Bullish = %≥0, Bearish = %<0.
 function DirDropdown({ value, onChange }: { value: Dir; onChange: (d: Dir) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
   const cur = DIR_OPTS.find((o) => o.label === value)!;
   return (
-    <div ref={ref} className="relative ml-[15px] mb-[10px]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center bg-[#333333] rounded-[10px] p-2 w-fit cursor-pointer"
-      >
-        <Icon name={cur.icon} className={`w-[22px] h-[22px] ${cur.tint}`} />
-        <span className="ml-2 text-[14px] whitespace-nowrap">{cur.label}&nbsp;</span>
-        <Caret className={`w-[13px] h-[13px] ml-3 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="absolute z-30 mt-1 min-w-[160px] rounded-[10px] border border-[#555] bg-[#232323] shadow-lg py-1">
-          {DIR_OPTS.map((o) => (
-            <button
-              key={o.label}
-              type="button"
-              onClick={() => { onChange(o.label); setOpen(false); }}
-              className={`flex items-center w-full text-left px-3 py-2 text-[14px] hover:bg-white/10 ${o.label === value ? "bg-white/[0.06]" : ""}`}
-            >
-              <Icon name={o.icon} className={`w-[20px] h-[20px] mr-2 ${o.tint}`} />
-              {o.label}
-            </button>
-          ))}
-        </div>
+    <Dropdown
+      face={() => (
+        <>
+          <Icon name={cur.icon} className={`w-[22px] h-[22px] ${cur.tint}`} />
+          <span className="ml-2 text-[14px] whitespace-nowrap">{cur.label}&nbsp;</span>
+        </>
       )}
-    </div>
+    >
+      {(close) => DIR_OPTS.map((o) => (
+        <button
+          key={o.label}
+          type="button"
+          onClick={() => { onChange(o.label); close(); }}
+          className={`${ROW_CLASS} ${o.label === value ? "bg-white/[0.06]" : ""}`}
+        >
+          <Icon name={o.icon} className={`w-[20px] h-[20px] mr-2 ${o.tint}`} />
+          {o.label}
+        </button>
+      ))}
+    </Dropdown>
   );
 }
 
-function Widget<T extends { Symbol: string }>({
-  title, desc, filters, cols, rows, defaultDir = -1, initialSortCol, dirOf,
-}: {
-  title: string; desc: string; filters: Filter[]; cols: Col<T>[]; rows: T[];
-  defaultDir?: 1 | -1; initialSortCol?: number; dirOf?: (r: T) => number;
+const ALL_SECTORS = "All";
+
+// Sector filter. Sectors are listed strongest first with their strength multiple, so the
+// menu doubles as a read on where the day's money is — which is how the real widget uses it.
+function SectorDropdown({ value, onChange, ranked }: {
+  value: string; onChange: (s: string) => void; ranked: SectorRank[];
 }) {
+  return (
+    <Dropdown
+      width={230}
+      face={() => (
+        <>
+          {value === ALL_SECTORS
+            ? <AllSectorsIcon />
+            : <SectorIcon sector={value} label={sectorLabel(value)} />}
+          <span className="ml-2 text-[14px] whitespace-nowrap">{sectorLabel(value)}&nbsp;</span>
+        </>
+      )}
+    >
+      {(close) => (
+        <>
+          <button
+            type="button"
+            onClick={() => { onChange(ALL_SECTORS); close(); }}
+            className={`${ROW_CLASS} gap-2 ${value === ALL_SECTORS ? "bg-white/[0.06]" : ""}`}
+          >
+            <AllSectorsIcon />
+            {ALL_SECTORS}
+          </button>
+          {ranked.map((s) => (
+            <button
+              key={s.name}
+              type="button"
+              onClick={() => { onChange(s.name); close(); }}
+              className={`${ROW_CLASS} gap-2 ${s.name === value ? "bg-white/[0.06]" : ""}`}
+            >
+              <SectorIcon sector={s.name} label={sectorLabel(s.name)} />
+              <span className="whitespace-nowrap">{sectorLabel(s.name)}</span>
+              <span className={`ml-auto pl-4 font-bold tabular-nums ${s.strength >= 0 ? "text-bull" : "text-bear"}`}>
+                {s.strength} X
+              </span>
+            </button>
+          ))}
+        </>
+      )}
+    </Dropdown>
+  );
+}
+
+/* ---------- generic widget ---------- */
+
+// The sector universe is the same for every widget on the page, so it is provided once
+// rather than threaded through seven identical props.
+const SectorCtx = createContext<{ ranked: SectorRank[]; memberOf: Map<string, Set<string>> }>({
+  ranked: [], memberOf: new Map(),
+});
+
+function Widget<T extends { Symbol: string }>({
+  title, desc, cols, rows, defaultDir = -1, initialSortCol, dirOf,
+}: {
+  title: string; desc: string; cols: Col<T>[]; rows: T[];
+  defaultDir?: 1 | -1; initialSortCol?: number;
+  /** Present only on widgets where a row has a direction to filter on. */
+  dirOf?: (r: T) => number;
+}) {
+  const { ranked, memberOf } = useContext(SectorCtx);
   const [q, setQ] = useState("");
   const [dir, setDir] = useState<Dir>("Neutral");
+  const [sector, setSector] = useState(ALL_SECTORS);
 
   const shown = useMemo(() => {
     let out = rows.filter((r) => r.Symbol.toLowerCase().includes(q.trim().toLowerCase()));
     if (dirOf && dir !== "Neutral") {
       out = out.filter((r) => (dir === "Bullish" ? dirOf(r) >= 0 : dirOf(r) < 0));
     }
+    if (sector !== ALL_SECTORS) {
+      out = out.filter((r) => memberOf.get(r.Symbol)?.has(sector));
+    }
     return out;
-  }, [rows, q, dir, dirOf]);
+  }, [rows, q, dir, dirOf, sector, memberOf]);
 
   return (
     <TableCard title={title} desc={desc} howTo live search={{ value: q, onChange: setQ }}>
-      {/* filter dropdowns */}
       <div className="flex flex-wrap mt-3">
-        {/* interactive Bullish/Bearish/Neutral filter (only where a direction accessor exists) */}
         {dirOf && <DirDropdown value={dir} onChange={setDir} />}
-        {/* remaining chips (sector "All" etc.) stay as static labels for now */}
-        {filters
-          .filter((f) => !["Neutral", "Bullish", "Bearish"].includes(f.label))
-          .map((f, i) => (
-            <div key={i} className="ml-[15px] mb-[10px] flex items-center bg-[#333333] rounded-[10px] p-2 w-fit cursor-pointer">
-              <Icon name={f.icon} className="w-[18px] h-[18px] text-muted" />
-              <span className="ml-2 text-[14px]">{f.label}&nbsp;</span>
-              <Caret className="w-[13px] h-[13px] ml-3 text-muted" />
-            </div>
-          ))}
+        {/* Hidden rather than shown empty when the sector payload didn't load — a filter
+            that can only say "All" is a control that does nothing. */}
+        {ranked.length > 0 && <SectorDropdown value={sector} onChange={setSector} ranked={ranked} />}
       </div>
 
       <DataTable
@@ -104,15 +178,13 @@ function Widget<T extends { Symbol: string }>({
         rowKey={(r, i) => r.Symbol + i}
         defaultDir={defaultDir}
         initialSort={initialSortCol}
+        empty={sector === ALL_SECTORS ? "No rows found." : `Nothing in ${sectorLabel(sector)} right now.`}
       />
     </TableCard>
   );
 }
 
 /* ---------- widget configs ---------- */
-
-
-const sectorAll: Filter = { icon: "sectors", label: "All" };
 
 // Every widget opens with these three, so they are built once rather than restated per config.
 const symCols: Col<{ Symbol: string }>[] = [
@@ -153,8 +225,19 @@ const powerCols: Col<ParamRow>[] = [
 
 /* ---------- page ---------- */
 
-export default function MarketPulseClient({ data: initial }: { data: MarketPulse }) {
+export default function MarketPulseClient({ data: initial, sectors: initialSectors }: {
+  data: MarketPulse; sectors: SectorScope;
+}) {
   const { data, updatedAt, open } = useLiveData<MarketPulse>(initial, "/api/market-pulse");
+  // Polled as well as the pulse itself: the strength multiples in the filter menu are a
+  // live read on where money is rotating, and a stale one would be worse than none.
+  const { data: sectors } = useLiveData<SectorScope>(initialSectors, "/api/sector-scope");
+
+  const universe = useMemo(
+    () => ({ ranked: rankSectors(sectors), memberOf: sectorMembership(sectors) }),
+    [sectors],
+  );
+
   return (
     <div
       className="min-h-screen"
@@ -165,66 +248,57 @@ export default function MarketPulseClient({ data: initial }: { data: MarketPulse
         <LiveClock at={updatedAt} open={open} />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Widget
-          title="BREAKOUT BEACON"
-          desc="With BREAKOUT BEACON, unleash massive gains! Spot stocks surging with momentum as big players pile in."
-          filters={[{ icon: "neutral", label: "Neutral" }, sectorAll]}
-          cols={bbCols}
-          rows={data.breakout_beacon}
-          initialSortCol={4}
-          dirOf={(r) => (r.param_2 === "BULL" ? 1 : -1)}
-        />
-        <Widget
-          title="INTRADAY BOOST"
-          desc="Spot the Rising Stars of Today's Market! Highlights stocks with a significant boost in activity vs the past 20 days."
-          filters={[
-            { icon: "neutral", label: "Neutral" },
-            { icon: "sectors", label: "All" },
-            sectorAll,
-          ]}
-          cols={boostCols}
-          rows={data.intraday_boost}
-          dirOf={(r) => r.param_2}
-        />
-        <Widget
-          title="TOP LEVEL STOCKS"
-          desc="Stocks trading near their day's high, signaling a blend of strength and momentum."
-          filters={[sectorAll]}
-          cols={levelCols}
-          rows={data.top_level_stocks}
-          defaultDir={1}
-        />
-        <Widget
-          title="LOW LEVEL STOCKS"
-          desc="Discover hidden market gems at the bottom! Unique opportunities to capitalize on shifts in momentum."
-          filters={[sectorAll]}
-          cols={levelCols}
-          rows={data.low_level_stocks}
-          defaultDir={1}
-        />
-        <Widget
-          title="TOP GAINERS"
-          desc="Ride the Wave of Today's Winners! The stocks making the biggest leaps today."
-          filters={[sectorAll]}
-          cols={gainerCols}
-          rows={data.top_gainers}
-        />
-        <Widget
-          title="TOP LOSERS"
-          desc="Identify the Market's Biggest Retreats of the Day! Sometimes, today's losers can be tomorrow's winners."
-          filters={[sectorAll]}
-          cols={gainerCols}
-          rows={data.top_losers}
-        />
-        <Widget
-          title="HIGH POW. STOCKS"
-          desc="Market's Most Electrifying Stocks! Stocks with the highest turnover in the cash segment."
-          filters={[sectorAll]}
-          cols={powerCols}
-          rows={data.high_powered_stocks}
-        />
-      </div>
+      <SectorCtx.Provider value={universe}>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <Widget
+            title="BREAKOUT BEACON"
+            desc="With BREAKOUT BEACON, unleash massive gains! Spot stocks surging with momentum as big players pile in."
+            cols={bbCols}
+            rows={data.breakout_beacon}
+            initialSortCol={4}
+            dirOf={(r) => (r.param_2 === "BULL" ? 1 : -1)}
+          />
+          <Widget
+            title="INTRADAY BOOST"
+            desc="Spot the Rising Stars of Today's Market! Highlights stocks with a significant boost in activity vs the past 20 days."
+            cols={boostCols}
+            rows={data.intraday_boost}
+            dirOf={(r) => r.param_2}
+          />
+          <Widget
+            title="TOP LEVEL STOCKS"
+            desc="Stocks trading near their day's high, signaling a blend of strength and momentum."
+            cols={levelCols}
+            rows={data.top_level_stocks}
+            defaultDir={1}
+          />
+          <Widget
+            title="LOW LEVEL STOCKS"
+            desc="Discover hidden market gems at the bottom! Unique opportunities to capitalize on shifts in momentum."
+            cols={levelCols}
+            rows={data.low_level_stocks}
+            defaultDir={1}
+          />
+          <Widget
+            title="TOP GAINERS"
+            desc="Ride the Wave of Today's Winners! The stocks making the biggest leaps today."
+            cols={gainerCols}
+            rows={data.top_gainers}
+          />
+          <Widget
+            title="TOP LOSERS"
+            desc="Identify the Market's Biggest Retreats of the Day! Sometimes, today's losers can be tomorrow's winners."
+            cols={gainerCols}
+            rows={data.top_losers}
+          />
+          <Widget
+            title="HIGH POW. STOCKS"
+            desc="Market's Most Electrifying Stocks! Stocks with the highest turnover in the cash segment."
+            cols={powerCols}
+            rows={data.high_powered_stocks}
+          />
+        </div>
+      </SectorCtx.Provider>
     </div>
   );
 }
