@@ -49,7 +49,7 @@ function score(pct: number, maxUp: number, maxDown: number): number {
 // other, or the strength axis silently drifts off their scale.
 const STRENGTH_DIVISOR = 46.5;
 
-export const sectorStrength = (stocks: SectorStock[]) =>
+const sectorStrength = (stocks: SectorStock[]) =>
   +(stocks.reduce((a, s) => a + s.pChange * s.rFactor ** 2, 0) / STRENGTH_DIVISOR).toFixed(2);
 
 export function toTreemap(data: SectorScope): TreeNode[] {

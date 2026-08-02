@@ -1,79 +1,17 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { tvLink } from "@/lib/format";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { timeOfDay } from "@/lib/format";
 import { useLiveData } from "@/lib/live";
 import LiveClock from "@/components/LiveClock";
+import { Caret, Icon, type IconName } from "@/components/icons";
 import {
-  Bulb, Play, Bookmark, ChartLink, Caret, Bullish, Bearish, Icon, LiveBadge, SymbolAvatar,
-  type IconName,
-} from "@/components/icons";
+  DataTable, Num, PctChip, RowIcons, SignalPill, SymbolCell, TableCard, TrendArrow, type Col,
+} from "@/components/table";
 import type { MarketPulse, BeaconRow, ParamRow } from "@/lib/types";
 
 
-// Palette measured from the reference design.
-const GREEN_BG = "#b9e3a8", GREEN_FG = "#46642e";
-const RED_BG = "#fba8a8", RED_FG = "#b3150c";
-
-const fmtTime = (epoch: number) =>
-  new Date(epoch * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
-
-/* ---------- cell renderers ---------- */
-
-const SymbolIcon = ({ sym }: { sym: string }) =>
-  <SymbolAvatar symbol={sym} className="w-[25px] h-[25px] text-[10px] mr-3" />;
-
-const SymbolCell = ({ sym }: { sym: string }) => (
-  <a target="_blank" rel="noopener noreferrer" href={tvLink(sym)} className="flex items-center text-[15px] leading-[13px] font-bold hover:underline">
-    <SymbolIcon sym={sym} />
-    {sym}
-  </a>
-);
-
-const IconsCell = ({ sym }: { sym: string }) => (
-  <div className="flex items-center">
-    <a target="_blank" rel="noopener noreferrer" href={tvLink(sym)} title="Open Chart">
-      <ChartLink className="w-[19px] h-[19px] text-muted hover:text-white transition-colors" title="Open chart" />
-    </a>
-    <Bookmark className="w-[17px] h-[19px] ml-2 text-muted hover:text-accent transition-colors cursor-pointer" title="Add to Watchlist" />
-  </div>
-);
-
-const PctChip = ({ v }: { v: number }) => (
-  <span
-    className="inline-block rounded-[25px] px-[10px] py-[6px] text-[15px] leading-[13px] font-bold"
-    style={v >= 0 ? { background: GREEN_BG, color: GREEN_FG } : { background: RED_BG, color: RED_FG }}
-  >
-    {v.toFixed(2)}
-  </span>
-);
-
-const BullBearPill = ({ bull }: { bull: boolean }) => (
-  <div
-    className="w-[58px] text-center rounded-[25px] border-[1.6px] py-[6px] text-[15px] leading-[13px] font-black"
-    style={bull ? { background: GREEN_BG, borderColor: GREEN_FG, color: GREEN_FG } : { background: RED_BG, borderColor: RED_FG, color: RED_FG }}
-  >
-    {bull ? "BULL" : "BEAR"}
-  </div>
-);
-
-const ArrowCell = ({ bull }: { bull: boolean }) =>
-  bull
-    ? <Bullish className="w-[22px] h-[22px] text-bull" title="bullish" />
-    : <Bearish className="w-[22px] h-[22px] text-bear" title="bearish" />;
-
-const Num = ({ children }: { children: ReactNode }) => (
-  <span className="text-[15px] leading-[13px] font-bold">{children}</span>
-);
-
 /* ---------- generic widget ---------- */
-
-type Col<T> = {
-  h: string;
-  sortable?: boolean;
-  val?: (r: T) => number; // sort accessor
-  render: (r: T) => ReactNode;
-};
 
 type Filter = { icon: IconName; label: string };
 
@@ -133,58 +71,17 @@ function Widget<T extends { Symbol: string }>({
 }) {
   const [q, setQ] = useState("");
   const [dir, setDir] = useState<Dir>("Neutral");
-  const [sort, setSort] = useState<{ i: number; dir: 1 | -1 } | null>(
-    initialSortCol != null ? { i: initialSortCol, dir: defaultDir } : null
-  );
 
   const shown = useMemo(() => {
     let out = rows.filter((r) => r.Symbol.toLowerCase().includes(q.trim().toLowerCase()));
     if (dirOf && dir !== "Neutral") {
       out = out.filter((r) => (dir === "Bullish" ? dirOf(r) >= 0 : dirOf(r) < 0));
     }
-    if (sort) {
-      const { val } = cols[sort.i];
-      if (val) out = [...out].sort((a, b) => (val(a) - val(b)) * sort.dir);
-    }
     return out;
-  }, [rows, q, dir, dirOf, sort, cols]);
-
-  const clickSort = (i: number) => {
-    if (!cols[i].sortable) return;
-    setSort((s) => (s && s.i === i ? { i, dir: s.dir === 1 ? -1 : 1 } : { i, dir: defaultDir }));
-  };
+  }, [rows, q, dir, dirOf]);
 
   return (
-    <section className="rounded-[10px] border-[0.8px] border-white/30 shadow-[0_4px_6px_rgba(0,0,0,0.1)] bg-white/[0.02] px-[10px] pb-[10px]">
-      {/* header */}
-      <div className="flex items-start justify-between gap-3 px-[15px] pt-[12px]">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="min-w-0">
-            <div className="flex items-center">
-              <h4 className="text-[20px] font-bold leading-[25px] whitespace-nowrap">{title}</h4>
-              <Bulb className="w-[20px] h-[20px] ml-2 text-amber-300/80 cursor-help" title={desc} />
-            </div>
-            <div className="flex items-center mt-1 cursor-pointer w-fit">
-              <span className="text-[16px] font-semibold underline mr-1.5 pb-[2px]">How to use</span>
-              <Play className="w-[17px] h-[17px] text-accent" />
-              <LiveBadge className="ml-3" />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center bg-[#27272a] rounded-[12px] h-10 w-[230px] max-w-[42%] px-3 shrink-0">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="bg-transparent outline-none flex-1 min-w-0 text-[14px] placeholder:text-[#8a8aa0]"
-            aria-label={`Search ${title}`}
-          />
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#8a8aa0]">
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
-            <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
-      </div>
-
+    <TableCard title={title} desc={desc} howTo live search={{ value: q, onChange: setQ }}>
       {/* filter dropdowns */}
       <div className="flex flex-wrap mt-3">
         {/* interactive Bullish/Bearish/Neutral filter (only where a direction accessor exists) */}
@@ -201,45 +98,14 @@ function Widget<T extends { Symbol: string }>({
           ))}
       </div>
 
-      {/* table */}
-      <div className="h-[500px] overflow-auto px-[15px] pb-[5px]">
-        <table className="w-full table-auto border-separate border-spacing-0">
-          <thead>
-            <tr>
-              {cols.map((c, i) => (
-                <th
-                  key={i}
-                  onClick={() => clickSort(i)}
-                  className={`sticky top-0 z-10 bg-[#27272a] text-[#a1a1aa] text-[12.5px] leading-[10px] font-semibold text-left px-[10px] py-[10px] whitespace-nowrap select-none first:rounded-l-[5px] last:rounded-r-[5px] ${c.sortable ? "cursor-pointer hover:text-[#d4d4d8]" : ""}`}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {c.h}
-                    {c.sortable && (
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"
-                        className={(sort?.i === i ? sort.dir : defaultDir) === 1 ? "rotate-180" : ""}>
-                        <path d="M2 4l4 4 4-4z" />
-                      </svg>
-                    )}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r, ri) => (
-              <tr key={r.Symbol + ri}>
-                {cols.map((c, ci) => (
-                  <td key={ci} className="px-[10px] py-[12px] align-middle">{c.render(r)}</td>
-                ))}
-              </tr>
-            ))}
-            {shown.length === 0 && (
-              <tr><td colSpan={cols.length} className="px-[10px] py-8 text-center text-[#8a8aa0] text-[14px]">No rows found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
+      <DataTable
+        cols={cols}
+        rows={shown}
+        rowKey={(r, i) => r.Symbol + i}
+        defaultDir={defaultDir}
+        initialSort={initialSortCol}
+      />
+    </TableCard>
   );
 }
 
@@ -248,46 +114,41 @@ function Widget<T extends { Symbol: string }>({
 
 const sectorAll: Filter = { icon: "sectors", label: "All" };
 
+// Every widget opens with these three, so they are built once rather than restated per config.
+const symCols: Col<{ Symbol: string }>[] = [
+  { h: "Symbol", val: (r) => r.Symbol, render: (r) => <SymbolCell sym={r.Symbol} /> },
+  { h: "", render: (r) => <RowIcons sym={r.Symbol} /> },
+];
+const pctCol: Col<ParamRow> = { h: "%", val: (r) => r.param_2, render: (r) => <PctChip v={r.param_2} /> };
+
 // breakout_beacon: p0=%chg, p1=signal%, p2=BULL/BEAR, p3=epoch(s)
 const bbCols: Col<BeaconRow>[] = [
-  { h: "Signal", render: (r) => <BullBearPill bull={r.param_2 === "BULL"} /> },
-  { h: "Symbol", render: (r) => <SymbolCell sym={r.Symbol} /> },
-  { h: "", render: (r) => <IconsCell sym={r.Symbol} /> },
-  { h: "%", sortable: true, val: (r) => r.param_0, render: (r) => <PctChip v={r.param_0} /> },
-  { h: "Signal %", sortable: true, val: (r) => Math.abs(r.param_1), render: (r) => <Num>{r.param_1}</Num> },
-  { h: "Time", render: (r) => <Num>{fmtTime(r.param_3)}</Num> },
+  { h: "Signal", render: (r) => <SignalPill bull={r.param_2 === "BULL"} /> },
+  ...symCols,
+  { h: "%", val: (r) => r.param_0, render: (r) => <PctChip v={r.param_0} /> },
+  { h: "Signal %", val: (r) => Math.abs(r.param_1), render: (r) => <Num>{r.param_1}</Num> },
+  { h: "Time", val: (r) => r.param_3, render: (r) => <Num>{timeOfDay(r.param_3)}</Num> },
 ];
 
 // intraday_boost / gainers / losers: p0=LTP, p1=prevClose, p2=%chg, p3=R.Factor
 const boostCols: Col<ParamRow>[] = [
-  { h: "Symbol", render: (r) => <SymbolCell sym={r.Symbol} /> },
-  { h: "", render: (r) => <IconsCell sym={r.Symbol} /> },
-  { h: "%", sortable: true, val: (r) => r.param_2, render: (r) => <PctChip v={r.param_2} /> },
-  { h: "R.Fac", sortable: true, val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
-  { h: "Signal", render: (r) => <ArrowCell bull={r.param_2 >= 0} /> },
+  ...symCols, pctCol,
+  { h: "R.Fac", val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
+  { h: "Signal", render: (r) => <TrendArrow bull={r.param_2 >= 0} /> },
 ];
 
-const gainerCols: Col<ParamRow>[] = [
-  { h: "Symbol", render: (r) => <SymbolCell sym={r.Symbol} /> },
-  { h: "", render: (r) => <IconsCell sym={r.Symbol} /> },
-  { h: "%", sortable: true, val: (r) => r.param_2, render: (r) => <PctChip v={r.param_2} /> },
-  { h: "R.Fac", sortable: true, val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
-];
+const gainerCols: Col<ParamRow>[] = boostCols.slice(0, 4);
 
 // top_level / low_level: p3=diff (distance from day high/low)
 const levelCols: Col<ParamRow>[] = [
-  { h: "Symbol", render: (r) => <SymbolCell sym={r.Symbol} /> },
-  { h: "", render: (r) => <IconsCell sym={r.Symbol} /> },
-  { h: "%", sortable: true, val: (r) => r.param_2, render: (r) => <PctChip v={r.param_2} /> },
-  { h: "Diff", sortable: true, val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
+  ...symCols, pctCol,
+  { h: "Diff", val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
 ];
 
 // high_powered_stocks: p3=turnover(₹Cr)
 const powerCols: Col<ParamRow>[] = [
-  { h: "Symbol", render: (r) => <SymbolCell sym={r.Symbol} /> },
-  { h: "", render: (r) => <IconsCell sym={r.Symbol} /> },
-  { h: "%", sortable: true, val: (r) => r.param_2, render: (r) => <PctChip v={r.param_2} /> },
-  { h: "T.O.", sortable: true, val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
+  ...symCols, pctCol,
+  { h: "T.O.", val: (r) => r.param_3, render: (r) => <Num>{r.param_3.toFixed(2)}</Num> },
 ];
 
 /* ---------- page ---------- */

@@ -18,9 +18,19 @@ body {
 @layer components {
   .panel { @apply bg-panel border border-border rounded-2xl; }
   .chip { @apply bg-chip border border-border rounded-lg px-3 py-2 text-sm; }
-  .pill { @apply px-2 py-0.5 rounded-full text-[11px] font-bold; }
-  .pill-bull { @apply bg-emerald-500/15 text-emerald-400; }
-  .pill-bear { @apply bg-red-500/15 text-red-400; }
   .badge-live { @apply text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400; }
-  .badge-demo { @apply text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30; }
+}
+
+/* The index ticker. The track holds two identical copies of the list and slides exactly
+   half its own width, so the moment the first copy leaves the viewport the second is
+   where it started — the loop has no visible seam. Paused on hover so a number can be
+   read, and disabled outright for anyone who has asked for reduced motion. */
+.marquee { overflow: hidden; }
+.marquee-track { display: flex; width: max-content; animation: marquee-scroll 60s linear infinite; }
+.marquee-copy { display: flex; align-items: center; padding: 7px 0; }
+.marquee:hover .marquee-track { animation-play-state: paused; }
+@keyframes marquee-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+  .marquee { overflow-x: auto; }
 }

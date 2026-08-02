@@ -2,10 +2,28 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchData } from "@/lib/api";
 import { fmt, signCls } from "@/lib/format";
-import { Panel, SourceBadge } from "@/components/ui";
+import { PageTitle, Panel } from "@/components/ui";
+import { DataTable, Num, TableCard, type Col } from "@/components/table";
 import type { FiiDiiRow } from "@/lib/types";
 
 type Mode = "fii" | "dii" | "both";
+
+// Net columns carry the sign colour; gross buy/sell are just magnitudes.
+const money = (h: string, get: (r: FiiDiiRow) => number, signed = false): Col<FiiDiiRow> => ({
+  h, val: get,
+  render: (r) => <Num cls={signed ? signCls(get(r)) : ""}>{fmt(get(r), 1)}</Num>,
+});
+
+const cols: Col<FiiDiiRow>[] = [
+  { h: "Date", val: (r) => r.date, render: (r) => <Num>{r.date}</Num> },
+  money("FII Buy", (r) => r.fiiBuy),
+  money("FII Sell", (r) => r.fiiSell),
+  money("FII Net", (r) => r.fiiNet, true),
+  money("In Market", (r) => r.inMarket),
+  money("DII Net", (r) => r.diiNet, true),
+  money("DII Buy", (r) => r.diiBuy),
+  money("DII Sell", (r) => r.diiSell),
+];
 
 export default function Page() {
   const [rows, setRows] = useState<FiiDiiRow[]>([]);
@@ -31,15 +49,9 @@ export default function Page() {
     });
   }, [rows, mode]);
 
-  const cell = (v: number, colored = false) =>
-    <td className={`px-2 py-1.5 border-b border-[#161d28] ${colored ? signCls(v) : ""}`}>{fmt(v, 1)}</td>;
-
   return (
     <div>
-      <div className="flex items-center gap-3 mb-5">
-        <h1 className="text-3xl font-extrabold tracking-tight">FII / DII</h1>
-        <SourceBadge source={source} />
-      </div>
+      <PageTitle source={source}>FII / DII</PageTitle>
       <select value={mode} onChange={(e) => setMode(e.target.value as Mode)} className="chip mb-4">
         <option value="fii">FII Net value</option>
         <option value="dii">DII Net Value</option>
@@ -50,26 +62,9 @@ export default function Page() {
         <canvas ref={canvas} height={260} className="w-full" />
       </Panel>
 
-      <Panel title="Capital Market Activity (in ₹ Cr.)">
-        <div className="max-h-[420px] overflow-auto">
-          <table className="w-full text-[13px]">
-            <thead className="sticky top-0 bg-panel">
-              <tr className="text-left text-muted">
-                {["Date","FII Buy","FII Sell","FII Net","In Market","DII Net","DII Buy","DII Sell"].map((h) =>
-                  <th key={h} className="px-2 py-1.5 border-b border-border font-semibold">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.date} className="hover:bg-[#0e1420]">
-                  <td className="px-2 py-1.5 border-b border-[#161d28]">{r.date}</td>
-                  {cell(r.fiiBuy)}{cell(r.fiiSell)}{cell(r.fiiNet, true)}{cell(r.inMarket)}{cell(r.diiNet, true)}{cell(r.diiBuy)}{cell(r.diiSell)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
+      <TableCard title="Capital Market Activity (in ₹ Cr.)" desc="Daily cash-segment buy, sell and net for foreign and domestic institutions.">
+        <DataTable cols={cols} rows={rows} rowKey={(r) => r.date} height={420} />
+      </TableCard>
     </div>
   );
 }

@@ -37,7 +37,7 @@ const tooltip = {
  * no candles for is absent rather than zero — a zero bar reads as "no money moved", which
  * is a different claim from "there was nothing to read".
  */
-export function apexChartOption(candles: Candle[], flux: FluxPoint[], step: number, chartType: ChartType) {
+export function apexChartOption(candles: Candle[], flux: FluxPoint[], chartType: ChartType) {
   const times = candles.map((c) => istTime(c[0]));
   const at = new Map(candles.map((c, i) => [c[0], i]));
 

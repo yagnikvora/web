@@ -6,9 +6,9 @@
 // each one takes `currentColor` so it follows the surrounding text instead of being a
 // baked-in colour that only suits one theme.
 //
-// Company logos are deliberately NOT here. Per-symbol brand marks for ~200 issuers are
-// not licensable in bulk, so `SymbolAvatar` draws initials instead — which is what the old
-// code already fell back to whenever a logo 404'd.
+// Company logos are not here either, for a different reason: they are per-symbol raster
+// assets, not UI chrome, so they live as files under public/images/symbols/ and are drawn
+// by `SymbolAvatar` (re-exported below from its own client module).
 
 import type { ReactNode } from 'react';
 
@@ -82,7 +82,7 @@ export const Neutral = (p: IconProps) => svg(<path d="M4 12h16M7 8l-3 4 3 4M17 8
  * The widget and filter tables used to carry image URLs as strings; they now carry a name
  * from this list, so an unknown one is a TypeScript error instead of a broken image.
  */
-export const ICONS = {
+const ICONS = {
   bulb: Bulb, play: Play, bookmark: Bookmark, chart: ChartLink, caret: Caret,
   sectors: Sectors, bullish: Bullish, bearish: Bearish, neutral: Neutral,
 } as const;
@@ -96,34 +96,9 @@ export function Icon({ name, className, title }: { name: IconName; className?: s
 
 /* --------------------------------------------------------------------- avatar --- */
 
-// Stable per-symbol tint, so a stock keeps the same colour everywhere it appears. Fixed
-// saturation and lightness rather than a random hex, so every avatar stays legible against
-// white text and no two sit at wildly different weights.
-function hue(symbol: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < symbol.length; i++) { h ^= symbol.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0) % 360;
-}
-
-/**
- * A symbol's mark: its first two characters on a colour derived from the name.
- *
- * Replaces a hotlinked per-issuer logo. The old code already rendered this on a 404, so
- * this is the same look, minus the dependency and the ~200 requests a full board made.
- */
-export function SymbolAvatar({ symbol, className = 'w-[25px] h-[25px] text-[9px]' }: {
-  symbol: string; className?: string;
-}) {
-  return (
-    <span
-      className={`${className} rounded-full shrink-0 inline-flex items-center justify-center font-bold text-white/95 select-none`}
-      style={{ background: `hsl(${hue(symbol)} 45% 38%)` }}
-      aria-hidden
-    >
-      {symbol.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
+// Lives in its own file because it needs an error handler for the logo-to-initials
+// fallback, and so a `use client` boundary. Re-exported here so callers keep one import.
+export { SymbolAvatar } from './SymbolAvatar';
 
 /** The live-data badge. Styled by `.badge-live` in globals.css, which already existed. */
 export const LiveBadge = ({ className = '' }: { className?: string }) => (

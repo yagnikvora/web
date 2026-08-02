@@ -1,11 +1,27 @@
 "use client";
 import { useEffect, useState } from "react";
 import { fetchData } from "@/lib/api";
-import { fmt, signCls, tvLink } from "@/lib/format";
-import { Panel, SourceBadge } from "@/components/ui";
-import type { IndexMover } from "@/lib/types";
+import { fmt, signCls } from "@/lib/format";
+import { PageTitle, Panel } from "@/components/ui";
+import {
+  DataTable, Num, PctChip, RowIcons, SymbolCell, TableCard, type Col,
+} from "@/components/table";
+import type { IndexMover, MoverStock } from "@/lib/types";
 
 const INDICES = ["NIFTY 50", "NIFTY BANK", "NIFTY IT", "NIFTY AUTO"];
+
+const cols: Col<MoverStock>[] = [
+  { h: "Symbol", val: (s) => s.Symbol, render: (s) => <SymbolCell sym={s.Symbol} /> },
+  { h: "", render: (s) => <RowIcons sym={s.Symbol} /> },
+  { h: "% Change", val: (s) => s.per_change, render: (s) => <PctChip v={s.per_change} /> },
+  {
+    h: "Points to Index",
+    // Ranked by size of contribution, so first click puts the biggest movers on top
+    // whichever way they moved.
+    val: (s) => Math.abs(s.point_to_index),
+    render: (s) => <Num cls={signCls(s.point_to_index)}>{fmt(s.point_to_index, 3)}</Num>,
+  },
+];
 
 export default function Page() {
   const [index, setIndex] = useState("NIFTY 50");
@@ -21,14 +37,10 @@ export default function Page() {
   const pts = d ? (d.points ?? Object.values(d.stocks).reduce((a, s) => a + s.point_to_index, 0)) : 0;
   const up = pts >= 0;
   const total = d ? d.gainers + d.losers || 1 : 1;
-  const sorted = d ? [...d.stocks].sort((a, b) => Math.abs(b.point_to_index) - Math.abs(a.point_to_index)) : [];
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-5">
-        <h1 className="text-3xl font-extrabold tracking-tight">Index Mover</h1>
-        <SourceBadge source={source} />
-      </div>
+      <PageTitle source={source}>Index Mover</PageTitle>
       <select value={index} onChange={(e) => setIndex(e.target.value)} className="chip mb-5">
         {INDICES.map((i) => <option key={i}>{i}</option>)}
       </select>
@@ -53,30 +65,9 @@ export default function Page() {
             </Panel>
           </div>
 
-          <Panel title="Point contribution by stock">
-            <div className="max-h-[460px] overflow-auto">
-              <table className="w-full text-[13px]">
-                <thead className="sticky top-0 bg-panel">
-                  <tr className="text-left text-muted">
-                    <th className="px-2 py-1.5 border-b border-border font-semibold">Symbol</th>
-                    <th className="px-2 py-1.5 border-b border-border font-semibold">% Change</th>
-                    <th className="px-2 py-1.5 border-b border-border font-semibold">Points to Index</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((s) => (
-                    <tr key={s.Symbol} className="hover:bg-[#0e1420]">
-                      <td className="px-2 py-1.5 border-b border-[#161d28]">
-                        <a href={tvLink(s.Symbol)} target="_blank" rel="noreferrer" className="font-semibold hover:text-accent">{s.Symbol}</a>
-                      </td>
-                      <td className={`px-2 py-1.5 border-b border-[#161d28] ${signCls(s.per_change)}`}>{fmt(s.per_change)}%</td>
-                      <td className={`px-2 py-1.5 border-b border-[#161d28] ${signCls(s.point_to_index)}`}>{fmt(s.point_to_index, 3)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
+          <TableCard title="Point contribution by stock" live>
+            <DataTable cols={cols} rows={d.stocks} rowKey={(s) => s.Symbol} initialSort={3} height={460} />
+          </TableCard>
         </>
       )}
     </div>

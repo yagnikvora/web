@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BRAND, VIEWER, moduleGloss, moduleLabel } from "@/lib/brand";
@@ -17,8 +18,29 @@ export default function NavBar() {
 
   return (
     <header className="sticky top-0 z-20 flex items-center gap-6 px-5 py-3 bg-[#0c1017] border-b border-border">
-      <Link href="/" className="text-lg font-extrabold tracking-tight shrink-0" title={BRAND.tagline}>
-        {BRAND.nameLead}<span className="text-accent">{BRAND.nameAccent}</span>
+      {/*
+        The logo master, used as-is. It centres a 1223x416 wordmark inside a 1536x1024
+        frame, so ~25% of its height is empty above and ~34% below — rendered whole at a
+        nav-bar height the logo itself would be about 14px tall. The wrapper crops to the
+        artwork instead, which keeps this pointing at the untouched source file.
+
+        Numbers are that content box as fractions of the frame (x 8.92%, y 25.29%,
+        w 79.62%, h 40.63%) solved for a 34px-tall logo. Re-derive them if the master is
+        re-exported with different padding.
+      */}
+      <Link href="/" className="shrink-0" title={BRAND.tagline} aria-label={BRAND.name}>
+        <span className="relative block w-[100px] h-[34px] overflow-hidden">
+          <Image
+            src="/images/Trinetra_navbar.png"
+            alt={BRAND.name}
+            width={1536}
+            height={1024}
+            priority
+            sizes="126px"
+            className="absolute select-none max-w-none"
+            style={{ width: "125.5px", height: "83.7px", left: "-11.2px", top: "-21.2px" }}
+          />
+        </span>
       </Link>
       <nav className="flex flex-wrap items-center gap-1">
         {GROUPS.flatMap((g) => g.items).map((href) => {

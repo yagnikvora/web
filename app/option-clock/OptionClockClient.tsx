@@ -8,6 +8,7 @@ import { isMarketOpen, REFRESH_MS } from "@/lib/live";
 import {
   atmOf, bounds, dayLabel, expLabel, expParam, groupIN, istDay, istTime, ladder, sessionGrid, totals,
 } from "@/lib/oi";
+import { Num, TD_CLASS, TH_CLASS } from "@/components/table";
 import { clockOption, distributionOption, netOption, BEAR, BULL } from "./charts";
 import { PCR_STEP, type ClockLoad } from "@/lib/optionclock";
 import type { PcrPoint, RunningExpiry } from "@/lib/types";
@@ -135,27 +136,34 @@ function PcrTrend({ rows, step }: { rows: PcrRow[]; step: number }) {
         )}
       </header>
 
+      {/* The one table that doesn't go through DataTable: a pending row spans four columns
+          at once, and the newest row is scrolled to by ref. It borrows the shared classes
+          so it still reads as the same table as everywhere else. */}
       <div ref={scroller} className="max-h-[420px] overflow-auto">
-        <table className="w-full text-[14px] border-separate border-spacing-0">
+        <table className="w-full table-auto border-separate border-spacing-0">
           <thead>
-            <tr className="text-left text-muted text-[12.5px]">
+            <tr>
               {["Time", "PCR", "Change", "Bulls OI (PE)", "Bears OI (CE)"].map((h) => (
-                <th key={h} className="sticky top-0 z-10 bg-panel px-3 py-2 font-semibold border-b border-border">{h}</th>
+                <th key={h} className={TH_CLASS}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.ts} ref={r.ts === latest?.ts ? lastRow : undefined} className={r.pcr == null ? "opacity-45" : undefined}>
-                <td className="px-3 py-2 border-b border-[#161d28] font-semibold">{istTime(r.ts)}</td>
+              <tr
+                key={r.ts}
+                ref={r.ts === latest?.ts ? lastRow : undefined}
+                className={r.pcr == null ? "opacity-45" : "hover:bg-white/[0.03]"}
+              >
+                <td className={TD_CLASS}><Num>{istTime(r.ts)}</Num></td>
                 {r.pcr == null ? (
-                  <td colSpan={4} className="px-3 py-2 border-b border-[#161d28] text-muted text-[13px]">not recorded yet</td>
+                  <td colSpan={4} className={`${TD_CLASS} text-muted text-[13px]`}>not recorded yet</td>
                 ) : (
                   <>
-                    <td className={`px-3 py-2 border-b border-[#161d28] font-bold ${r.pcr >= 1 ? "text-bull" : "text-bear"}`}>{r.pcr.toFixed(2)}</td>
-                    <td className="px-3 py-2 border-b border-[#161d28]">{arrow(r.chg)}</td>
-                    <td className="px-3 py-2 border-b border-[#161d28] text-[#c9d1d9]">{groupIN(r.bulls)}</td>
-                    <td className="px-3 py-2 border-b border-[#161d28] text-[#c9d1d9]">{groupIN(r.bears)}</td>
+                    <td className={TD_CLASS}><Num cls={r.pcr >= 1 ? "text-bull" : "text-bear"}>{r.pcr.toFixed(2)}</Num></td>
+                    <td className={TD_CLASS}>{arrow(r.chg)}</td>
+                    <td className={TD_CLASS}><Num cls="text-[#c9d1d9]">{groupIN(r.bulls)}</Num></td>
+                    <td className={TD_CLASS}><Num cls="text-[#c9d1d9]">{groupIN(r.bears)}</Num></td>
                   </>
                 )}
               </tr>

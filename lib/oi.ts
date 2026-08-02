@@ -6,7 +6,7 @@
 // ones as yy + MMM (NFO:NIFTY26AUG24300CE) — both are matched here so the ladder builds
 // the same way whichever expiry is on screen.
 
-import type { OiSnapshot, RunningExpiry } from "./types";
+import type { OiSnapshot } from "./types";
 
 const CONTRACT = /^NFO:[A-Z]+?\d{2}(?:[1-9OND]\d{2}|[A-Z]{3})(\d+)(CE|PE)$/;
 

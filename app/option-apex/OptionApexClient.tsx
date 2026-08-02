@@ -7,6 +7,7 @@ import { isMarketOpen, REFRESH_MS } from "@/lib/live";
 import { expLabel, expParam, istTime } from "@/lib/oi";
 import { SCRIPTS, TIMEFRAMES, scriptLabel, type ApexLoad } from "@/lib/apex";
 import ApexDial from "./ApexDial";
+import { SymbolAvatar } from "@/components/icons";
 import {
   apexChartOption, moverOption, rupees,
   CHART_TYPES, CHART_TYPE_LABEL, type ChartType,
@@ -89,8 +90,8 @@ export default function OptionApexClient({ initial }: { initial: ApexLoad }) {
 
   const { chart, flux, dials, mover } = d;
   const chartOpt = useMemo(
-    () => apexChartOption(chart.candles, flux.points, flux.step, chartType),
-    [chart.candles, flux.points, flux.step, chartType],
+    () => apexChartOption(chart.candles, flux.points, chartType),
+    [chart.candles, flux.points, chartType],
   );
 
   // Against the previous session's close — the baseline "the index is up N points" means
@@ -375,9 +376,7 @@ function Mover({ mover }: { mover: NonNullable<ApexLoad["mover"]> }) {
         <ul className="space-y-1.5 max-h-[290px] overflow-y-auto pr-1">
           {top.map((s) => (
             <li key={s.Symbol} className="flex items-center gap-2 text-sm">
-              <span className="grid place-items-center w-6 h-6 rounded-full bg-chip text-[9px] font-bold shrink-0">
-                {s.Symbol.slice(0, 2)}
-              </span>
+              <SymbolAvatar symbol={s.Symbol} className="w-6 h-6 text-[9px]" />
               <span className="font-semibold truncate">{s.Symbol}</span>
               <span className="text-muted text-xs">added</span>
               <span className={`ml-auto font-semibold tabular-nums ${s.point_to_index >= 0 ? "text-bull" : "text-bear"}`}>

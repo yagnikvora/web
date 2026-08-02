@@ -1,8 +1,8 @@
 import { ReactNode } from "react";
-import type { Signal } from "@/lib/types";
 
+/** A plain card, for content that isn't a table. Tables get `TableCard` from components/table. */
 export function Panel({ title, badge, right, children, className = "" }: {
-  title?: ReactNode; badge?: "live" | "demo"; right?: ReactNode; children: ReactNode; className?: string;
+  title?: ReactNode; badge?: "live"; right?: ReactNode; children: ReactNode; className?: string;
 }) {
   return (
     <section className={`panel p-4 ${className}`}>
@@ -10,7 +10,6 @@ export function Panel({ title, badge, right, children, className = "" }: {
         <header className="flex items-center gap-2 mb-3">
           {title && <h2 className="text-[15px] font-semibold">{title}</h2>}
           {badge === "live" && <span className="badge-live">● LIVE</span>}
-          {badge === "demo" && <span className="badge-demo">DEMO</span>}
           <div className="ml-auto">{right}</div>
         </header>
       )}
@@ -18,10 +17,6 @@ export function Panel({ title, badge, right, children, className = "" }: {
     </section>
   );
 }
-
-export const Pill = ({ signal }: { signal: Signal }) => (
-  <span className={`pill ${signal === "BULL" ? "pill-bull" : "pill-bear"}`}>{signal}</span>
-);
 
 export function SourceBadge({ source }: { source?: string }) {
   if (source === "stale")
