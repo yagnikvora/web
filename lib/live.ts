@@ -22,18 +22,32 @@ export function isMarketOpen(now: Date = new Date()) {
   return mins >= 9 * 60 + 15 && mins <= 15 * 60 + 30;
 }
 
-// Polls a same-origin proxy every REFRESH_MS and returns the freshest data.
-// Starts from the server-rendered snapshot so the first paint is instant, then
-// swaps in new data in place (widgets keep their search/sort — no remount, no reload).
-export function useLiveData<T>(initial: T, url: string) {
+// Polls a same-origin proxy every `intervalMs` (default REFRESH_MS) and returns the freshest
+// data. Starts from the server-rendered snapshot so the first paint is instant, then swaps in
+// new data in place (widgets keep their search/sort — no remount, no reload).
+//
+// The interval is a parameter because one page needs a different answer: the momentum
+// scanner's timing layer dates a signal from when it fired, and a minute-old board can show a
+// four-minute-old entry as brand new. Everything else on this app is a level and reads fine
+// once a minute.
+export function useLiveData<T>(initial: T, url: string, intervalMs: number = REFRESH_MS) {
   const [data, setData] = useState<T>(initial);
-  const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
+  // NULL until the component has mounted, and deliberately so.
+  //
+  // Seeding this with `Date.now()` reads the clock during render, which runs once on the
+  // server and again in the browser — two different instants. Anything rendering the value
+  // then hydrates with a mismatch ("Server: 22:01:08, Client: 22:01:10"), and React throws
+  // it away and re-renders the whole subtree. A caller must treat null as "not known yet"
+  // rather than as a timestamp; there is no honest value before the client is running.
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   // assume open for the server render; the first client-side check corrects it
   const [open, setOpen] = useState(true);
   const lastJson = useRef<string>("");
 
   useEffect(() => {
     let alive = true;
+    // First honest reading of the clock: after mount, browser only.
+    setUpdatedAt(Date.now());
     async function poll() {
       if (!alive) return;
       const marketOpen = isMarketOpen();
@@ -58,11 +72,11 @@ export function useLiveData<T>(initial: T, url: string) {
       }
     }
     setOpen(isMarketOpen()); // get the badge right on first paint
-    const id = setInterval(poll, REFRESH_MS);
+    const id = setInterval(poll, intervalMs);
     // fire once shortly after mount so we don't wait a full interval for the first refresh
     const kick = setTimeout(poll, 3_000);
     return () => { alive = false; clearInterval(id); clearTimeout(kick); };
-  }, [url]);
+  }, [url, intervalMs]);
 
   return { data, updatedAt, open };
 }

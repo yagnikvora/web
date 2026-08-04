@@ -23,10 +23,15 @@ import { fmt } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
 import {
-  activityClass, buildUpClass, directionClass, ENRICHMENT_LABEL, gradeClass, IV_BASIS_LABEL,
-  pctStr, scoreBand, tradeClass, xStr,
-  type Confidence, type Direction, type MomentumBoard, type MomentumRow, type TradeType,
+  actionClass, activityClass, ageStr, buildUpClass, directionClass, ENRICHMENT_LABEL, entryBand,
+  gradeClass, IV_BASIS_LABEL, moneynessClass, pctStr, rupees, scoreBand, stateClass, STATE_HELP,
+  tradeClass, xStr,
+  type Confidence, type Direction, type MomentumBoard, type MomentumRow, type MomentumSignal,
+  type SignalState, type TradeType,
 } from "@/lib/momentum";
+
+/** The timing layer moves in minutes, so the board is polled in tens of seconds. */
+const SCANNER_REFRESH_MS = 20_000;
 
 /* ------------------------------------------------------------------------ pieces --- */
 
@@ -66,6 +71,132 @@ const CONF_CLASS: Record<Confidence, string> = {
   Medium: "text-amber-300 border-amber-700/60 bg-amber-500/10",
   Low: "text-muted border-border bg-white/[0.03]",
 };
+
+/* ---------------------------------------------------------------- timing pieces --- */
+
+/**
+ * The state, the trigger and how old it is.
+ *
+ * This column is deliberately placed next to the score rather than at the end of the row,
+ * because the two have to be read TOGETHER or the score is misleading. An 88 next to
+ * "Extended · range break 34m ago" is a different statement from an 88 next to "Igniting ·
+ * VWAP reclaim just now", and until this column existed the board printed both as "88".
+ */
+function SignalCell({ signal }: { signal: MomentumSignal | null }) {
+  if (!signal) return <span className="text-muted text-[13px]">—</span>;
+
+  const stale = signal.trigger != null && (signal.freshness ?? 0) <= 0;
+  return (
+    <div className="flex flex-col gap-1 min-w-[150px]">
+      <span
+        className={`inline-block self-start rounded-full border px-2 py-[3px] text-[11.5px] font-bold ${stateClass(signal.state)}`}
+        title={STATE_HELP[signal.state]}
+      >
+        {signal.state}
+      </span>
+      {signal.trigger ? (
+        <span className={`text-[11.5px] leading-[14px] ${stale ? "text-[#7d8895]" : "text-[#c7d2dc]"}`}>
+          {signal.trigger.direction === 1 ? "▲" : "▼"} {signal.trigger.label}
+          <span className="text-muted"> · {ageStr(signal.trigger.ageMin)}</span>
+        </span>
+      ) : (
+        <span className="text-[11.5px] text-muted">no trigger</span>
+      )}
+      {signal.freshness != null && (
+        // The bar is the only thing on the row that decays. That is the point: a signal is
+        // an event with an age, not a condition that stays true.
+        <span className="h-[3px] w-[70px] rounded-full bg-[#2a3341] overflow-hidden" aria-hidden>
+          <span
+            className="block h-full"
+            style={{
+              width: `${signal.freshness}%`,
+              background: signal.freshness > 50 ? "#2ec76a" : signal.freshness > 20 ? "#e2c15c" : "#8a5c5c",
+            }}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The contract to buy.
+ *
+ * Deliberately shows the ASK and the cost of one lot rather than the last traded premium: an
+ * option quoted 1.00 × 1.10 is a ₹1.10 purchase, and a row that printed 1.05 would be quietly
+ * optimistic about every trade taken from this board. A warning triangle is a real book
+ * problem — wide spread, no open interest, heavy decay — hover for which.
+ */
+function StrikeCell({ signal }: { signal: MomentumSignal | null }) {
+  const k = signal?.strike;
+  if (!k)
+    return (
+      <span className="text-muted text-[12px]" title="No option chain for this row this cycle — only the shortlist gets enriched.">
+        —
+      </span>
+    );
+
+  return (
+    <div className="flex flex-col gap-[3px] min-w-[132px]" title={`${k.reason}${k.warnings.length ? `\n\n⚠ ${k.warnings.join("\n⚠ ")}` : ""}`}>
+      <span className="text-[13px] font-bold">
+        <span className={k.type === "CE" ? "text-bull" : "text-bear"}>{k.label}</span>
+        <span className={`ml-1.5 text-[10px] font-semibold ${moneynessClass(k.moneyness)}`}>{k.moneyness}</span>
+        {k.warnings.length > 0 && <span className="ml-1 text-amber-300" aria-label="see warnings">⚠</span>}
+      </span>
+      <span className="text-[11.5px] text-muted tabular-nums">
+        ₹{k.entryCost.toFixed(2)}
+        {k.costPerLot != null && <span> · {rupees(k.costPerLot)}/lot</span>}
+      </span>
+      <span className="text-[11px] text-muted tabular-nums">
+        Δ{Math.abs(k.delta).toFixed(2)}
+        {k.gainPctAtTarget != null && (
+          <span className={k.gainPctAtTarget >= 30 ? " text-bull" : ""}>
+            {" "}· {k.gainPctAtTarget >= 0 ? "+" : ""}{k.gainPctAtTarget.toFixed(0)}% at target
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Entry quality — the score's counterpart, and never to be confused with it. */
+function EntryCell({ signal }: { signal: MomentumSignal | null }) {
+  if (!signal) return <span className="text-muted text-[13px]">—</span>;
+  const band = entryBand(signal.entryQuality);
+  const p = signal.plan;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block min-w-[38px] text-center rounded-[7px] px-1.5 py-[4px] text-[13.5px] leading-[12px] font-black tabular-nums"
+          style={{ background: band.bg, color: band.fg }}
+          title="How good the ENTRY is right now — freshness, pulse, room left and liquidity. Not the score."
+        >
+          {signal.entryQuality}
+        </span>
+        <span className={`inline-block rounded-full border px-2 py-[3px] text-[11px] font-bold ${actionClass(signal.action)}`}>
+          {signal.action}
+        </span>
+      </div>
+      {p && (
+        <span
+          className="text-[11px] text-muted tabular-nums"
+          title={
+            p.underlyingMovePctForTargetOption != null
+              ? `The stock needs ${p.underlyingMovePctForTargetOption.toFixed(2)}% for the option gain being targeted; this plan has ${p.targetPct.toFixed(2)}% of room.`
+              : "Priced from ATR only — no option chain for this row this cycle."
+          }
+        >
+          {p.optionMovePctAtTarget != null
+            ? `≈${p.optionMovePctAtTarget.toFixed(0)}% on the option`
+            : `target ${pctStr(p.targetPct)}`}
+          {p.meetsOptionTarget === false && <span className="text-amber-300/80"> · short of target</span>}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** The ✓/✗ list, capped. The full one is on the detail page. */
 function Reasons({ row, max = 4 }: { row: MomentumRow; max?: number }) {
@@ -156,13 +287,96 @@ function MarketBar({ board }: { board: MomentumBoard }) {
   );
 }
 
+/* ------------------------------------------------------------------ live entries --- */
+
+/**
+ * The strip at the top: what could be entered RIGHT NOW, freshest first.
+ *
+ * Separate from the table because it answers a different question. The table is "what is
+ * strong today" and is browsed; this is "what has just started" and is glanced at. Ordering
+ * this by score would defeat it — the highest score on the board is routinely the stock with
+ * the least left to give, which is the whole reason the timing layer was built.
+ *
+ * An empty strip is a real and common answer. It says so in words rather than rendering
+ * nothing, because a blank space reads as "still loading" and a reader waiting for a signal
+ * that is not there will take a worse one instead.
+ */
+function LiveEntries({ rows, igniting, entrable }: { rows: MomentumRow[]; igniting: number; entrable: number }) {
+  return (
+    <section className="panel p-4 mb-4">
+      <div className="flex items-baseline gap-3 mb-3 flex-wrap">
+        <h2 className="text-[15px] font-bold">Entries live now</h2>
+        <span className="text-[12px] text-muted">
+          {entrable} entrable · {igniting} igniting — ranked by entry quality, not by score
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-[13px] text-muted">
+          Nothing is entrable this minute. Every strong row on the board has either already made its move, stalled, or
+          turned against the day — which is a finding, not a gap. The board below still shows what is strong; the
+          Timing column says why none of it is an entry.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2.5">
+          {rows.map((r) => {
+            const s = r.signal!;
+            const band = entryBand(s.entryQuality);
+            return (
+              <Link
+                key={r.symbol}
+                href={`/momentum-scanner/${encodeURIComponent(r.symbol)}`}
+                className="flex items-center gap-3 rounded-xl border border-border bg-white/[0.02] px-3 py-2.5 hover:border-accent/60 transition-colors"
+              >
+                <span
+                  className="inline-block min-w-[36px] text-center rounded-[7px] px-1.5 py-[5px] text-[14px] leading-[12px] font-black tabular-nums"
+                  style={{ background: band.bg, color: band.fg }}
+                >
+                  {s.entryQuality}
+                </span>
+                <span className="flex flex-col">
+                  <span className="text-[13.5px] font-bold">
+                    {r.symbol}
+                    {/* The contract, not just the direction. This is the line somebody types
+                        into a terminal, so it carries the strike and what a lot costs. */}
+                    {s.strike ? (
+                      <span className={`ml-2 text-[12px] font-bold ${s.strike.type === "CE" ? "text-bull" : "text-bear"}`}>
+                        {s.strike.label}
+                        {s.strike.warnings.length > 0 && <span className="text-amber-300"> ⚠</span>}
+                      </span>
+                    ) : (
+                      <span className={`ml-2 text-[11.5px] font-bold ${s.action === "Buy Call" ? "text-bull" : "text-bear"}`}>
+                        {s.action}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11.5px] text-muted">
+                    {s.strike
+                      ? `₹${s.strike.entryCost.toFixed(2)}${s.strike.costPerLot != null ? ` · ${rupees(s.strike.costPerLot)}/lot` : ""}`
+                      : s.trigger
+                        ? `${s.trigger.label} · ${ageStr(s.trigger.ageMin)}`
+                        : s.state}
+                    {s.plan?.optionMovePctAtTarget != null && ` · ≈${s.plan.optionMovePctAtTarget.toFixed(0)}%`}
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /* --------------------------------------------------------------------- the board --- */
 
 type DirFilter = "All" | Direction;
 type TradeFilter = "All" | TradeType;
+type StateFilter = "All" | "Entries only" | SignalState;
 
 const DIRECTIONS: DirFilter[] = ["All", "Bullish", "Bearish", "Neutral"];
-const TRADES: TradeFilter[] = ["All", "Momentum Buy", "Momentum Sell", "Avoid"];
+const TRADES: TradeFilter[] = ["All", "Momentum Buy", "Momentum Sell", "Watch", "Avoid"];
+const STATES: StateFilter[] = ["All", "Entries only", "Igniting", "Extending", "Extended", "Reversing"];
 
 function Segmented<T extends string>({ options, value, onChange, label }: {
   options: T[]; value: T; onChange: (v: T) => void; label: string;
@@ -186,25 +400,45 @@ function Segmented<T extends string>({ options, value, onChange, label }: {
 }
 
 export default function MomentumClient({ initial, source }: { initial: MomentumBoard; source?: string }) {
-  // The backend refreshes on its own 30-second cycle; polling more often than that would
-  // return the same board. `useLiveData` also stops polling once the market closes.
-  const { data: board, updatedAt } = useLiveData<MomentumBoard>(initial, "/api/momentum?includeFactors=false");
+  // The backend scans every 15 seconds and the timing layer dates a signal from when it
+  // fired, so this polls in tens of seconds rather than on the app-wide minute: a signal that
+  // is only good for twelve minutes cannot be shown on a one-minute delay and still be early.
+  // `useLiveData` stops polling once the market closes.
+  const { data: board, updatedAt } = useLiveData<MomentumBoard>(
+    initial,
+    "/api/momentum?includeFactors=false",
+    SCANNER_REFRESH_MS,
+  );
 
   const [search, setSearch] = useState("");
   const [dir, setDir] = useState<DirFilter>("All");
   const [trade, setTrade] = useState<TradeFilter>("All");
+  const [state, setState] = useState<StateFilter>("All");
   const [minScore, setMinScore] = useState(0);
 
   const rows = useMemo(() => {
     const q = search.trim().toUpperCase();
-    return board.rows.filter(
-      (r) =>
-        r.score >= minScore &&
-        (dir === "All" || r.direction === dir) &&
-        (trade === "All" || r.tradeType === trade) &&
-        (!q || r.symbol.includes(q) || (r.sector ?? "").includes(q)),
-    );
-  }, [board.rows, search, dir, trade, minScore]);
+    return board.rows.filter((r) => {
+      if (r.score < minScore) return false;
+      if (dir !== "All" && r.direction !== dir) return false;
+      if (trade !== "All" && r.tradeType !== trade) return false;
+      if (state === "Entries only" && r.signal?.action !== "Buy Call" && r.signal?.action !== "Buy Put") return false;
+      if (state !== "All" && state !== "Entries only" && r.signal?.state !== state) return false;
+      if (q && !r.symbol.includes(q) && !(r.sector ?? "").includes(q)) return false;
+      return true;
+    });
+  }, [board.rows, search, dir, trade, state, minScore]);
+
+  // Sorted by entry quality, not by score — the strip exists to answer "what can I take
+  // right now", and sorting it by score would put the most extended stock at the top.
+  const live = useMemo(
+    () =>
+      board.rows
+        .filter((r) => r.signal?.action === "Buy Call" || r.signal?.action === "Buy Put")
+        .sort((a, b) => (b.signal?.entryQuality ?? 0) - (a.signal?.entryQuality ?? 0))
+        .slice(0, 6),
+    [board.rows],
+  );
 
   const cols: Col<MomentumRow>[] = [
     { h: "#", val: (r) => r.rank, render: (r) => <Num cls="text-muted">{r.rank}</Num> },
@@ -228,6 +462,21 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
     { h: "Price", val: (r) => r.price, render: (r) => <Num>{fmt(r.price)}</Num> },
     { h: "Chg %", val: (r) => r.changePct, render: (r) => <PctChip v={r.changePct} /> },
     { h: "Score", val: (r) => r.score, render: (r) => <ScoreCell row={r} /> },
+    {
+      h: "Timing",
+      val: (r) => r.signal?.freshness ?? -1,
+      render: (r) => <SignalCell signal={r.signal} />,
+    },
+    {
+      h: "Entry",
+      val: (r) => r.signal?.entryQuality ?? -1,
+      render: (r) => <EntryCell signal={r.signal} />,
+    },
+    {
+      h: "Option to buy",
+      val: (r) => r.signal?.strike?.gainPctAtTarget ?? -999,
+      render: (r) => <StrikeCell signal={r.signal} />,
+    },
     {
       h: "Confidence",
       val: (r) => ({ High: 3, Medium: 2, Low: 1 })[r.confidence],
@@ -366,12 +615,18 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <h1 className="text-3xl font-extrabold tracking-tight">Momentum Scanner</h1>
         <SourceBadge source={source} />
+        {/* The timestamp is client-only. Formatting `Date.now()` during render gives the
+            server one second and the browser another, which hydrates as a text mismatch —
+            and a scanner header is the last place to spend a re-render on. */}
         <span className="text-[12px] text-muted">
-          config v{board.configVersion} · updated {new Date(updatedAt).toLocaleTimeString("en-IN", { hour12: false })}
+          config v{board.configVersion}
+          {updatedAt !== null && ` · updated ${new Date(updatedAt).toLocaleTimeString("en-IN", { hour12: false })}`}
         </span>
       </div>
 
       <MarketBar board={board} />
+
+      <LiveEntries rows={live} igniting={board.igniting} entrable={board.entrable} />
 
       {board.warnings.length > 0 && (
         <div className="panel p-3.5 mb-4 border-amber-800/50">
@@ -386,11 +641,12 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
 
       <TableCard
         title={`Top momentum — ${rows.length} of ${board.scored}`}
-        desc="Eleven weighted factors scored 0–100. The ring beside each score is how much of the model was computable for that row; a stock outside the option-enrichment shortlist is marked Q."
+        desc="Twelve weighted factors scored 0–100. Score is how strong the move is; Timing and Entry are whether there is any of it left to buy — read them together, because the highest scores on this board are routinely moves that have already happened."
         live
         search={{ value: search, onChange: setSearch }}
       >
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-[15px] py-3">
+          <Segmented options={STATES} value={state} onChange={setState} label="Timing state" />
           <Segmented options={DIRECTIONS} value={dir} onChange={setDir} label="Direction" />
           <Segmented options={TRADES} value={trade} onChange={setTrade} label="Trade type" />
           <label className="flex items-center gap-2 text-[12.5px] text-muted">
@@ -415,10 +671,14 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
       </TableCard>
 
       <p className="mt-4 text-[11.5px] text-muted max-w-4xl leading-relaxed">
-        Scores are a ranking of measurable momentum evidence, not advice. An asterisk on an IV rank means it is standing
-        in from realised volatility — Upstox publishes no implied-volatility history, so a true IV rank accumulates from
-        the day this module was deployed. Weights and thresholds are configurable at{" "}
-        <code className="text-[11px]">PUT /momentum/config</code>.
+        Scores are a ranking of measurable momentum evidence, not advice. <strong className="text-[#c7d2dc]">Score and
+        Timing measure different things</strong>: eleven of the twelve factors are cumulative for the session, so they
+        peak once a move is finished — the Timing column is the only one that reads the last few minutes, and it is what
+        says whether an entry is still there. The option percentage is a first-order estimate from the ATM delta, gamma
+        and premium quoted on the chain; it ignores decay and any change in implied volatility over the hold. An
+        asterisk on an IV rank means it is standing in from realised volatility — Upstox publishes no
+        implied-volatility history, so a true IV rank accumulates from the day this module was deployed. Weights,
+        thresholds and every timing gate are configurable at <code className="text-[11px]">PUT /momentum/config</code>.
       </p>
     </main>
   );

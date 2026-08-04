@@ -9,12 +9,12 @@
 // looks missing rather than looking like a reading of zero.
 
 export type FactorKey =
-  | "rvol" | "liquidity" | "relativeStrength" | "vwap" | "optionFlow" | "greeks"
+  | "momentumPulse" | "rvol" | "liquidity" | "relativeStrength" | "vwap" | "optionFlow" | "greeks"
   | "impliedVolatility" | "atrExpansion" | "sectorStrength" | "marketBreadth" | "trendStructure";
 
 export type Confidence = "High" | "Medium" | "Low";
 export type Direction = "Bullish" | "Bearish" | "Neutral";
-export type TradeType = "Momentum Buy" | "Momentum Sell" | "Avoid";
+export type TradeType = "Momentum Buy" | "Momentum Sell" | "Watch" | "Avoid";
 export type ActivityLevel = "High" | "Medium" | "Low";
 export type LiquidityGrade = "Excellent" | "Good" | "Average" | "Poor";
 export type RvolGrade = LiquidityGrade;
@@ -23,6 +23,104 @@ export type IvBasis = "iv-history" | "hv-proxy" | "unavailable";
 export type EnrichmentLevel = "quote" | "partial" | "full";
 
 export interface FactorReason { ok: boolean; text: string }
+
+/* ------------------------------------------------------------------ timing layer --- */
+
+export type SignalState = "Igniting" | "Extending" | "Extended" | "Stalling" | "Reversing" | "Quiet";
+export type SignalAction = "Buy Call" | "Buy Put" | "Watch" | "Stand Aside";
+export type TriggerKind =
+  | "baseBreak" | "vwapReclaim" | "vwapLoss" | "orbBreak" | "dayExtreme" | "priorRange" | "thrust";
+
+export interface SignalTrigger {
+  kind: TriggerKind;
+  label: string;
+  direction: 1 | -1;
+  at: number;
+  price: number;
+  ageMin: number;
+  movedSincePct: number;
+}
+
+export interface PulseSummary {
+  ready: boolean;
+  score: number | null;
+  bias: number;
+  movePct: number | null;
+  velocityAtrPerMin: number | null;
+  burstRvol: number | null;
+  efficiency: number | null;
+  acceleration: number | null;
+  legAgeMin: number | null;
+  legMovePct: number | null;
+  pullback: number | null;
+  minutesSinceExtreme: number | null;
+  note?: string;
+}
+
+export interface SignalPlan {
+  entry: number;
+  stop: number;
+  target: number;
+  stopPct: number;
+  targetPct: number;
+  rewardRisk: number | null;
+  optionMovePctAtTarget: number | null;
+  underlyingMovePctForTargetOption: number | null;
+  meetsOptionTarget: boolean | null;
+  basis: "strike" | "chain" | "atr-only";
+}
+
+export type OptionType = "CE" | "PE";
+
+/** The contract to buy — the one output of the model that ends in an order. */
+export interface StrikeChoice {
+  strike: number;
+  type: OptionType;
+  label: string;
+  instrumentKey: string;
+  expiry: string;
+  expiryDays: number;
+  stepsFromAtm: number;
+  moneyness: "ITM" | "ATM" | "OTM";
+  premium: number;
+  /** The ask — what getting in actually costs, not the mid. */
+  entryCost: number;
+  bid: number;
+  ask: number;
+  spreadPct: number | null;
+  delta: number;
+  gamma: number | null;
+  iv: number | null;
+  thetaPctPerHour: number | null;
+  oi: number;
+  volume: number;
+  lotSize: number | null;
+  costPerLot: number | null;
+  premiumAtTarget: number | null;
+  /** Net of paying the ask and selling the bid. */
+  gainPctAtTarget: number | null;
+  profitPerLot: number | null;
+  breakEven: number | null;
+  reason: string;
+  warnings: string[];
+}
+
+export interface MomentumSignal {
+  state: SignalState;
+  action: SignalAction;
+  entryQuality: number;
+  freshness: number | null;
+  trigger: SignalTrigger | null;
+  microDirection: Direction;
+  aligned: boolean | null;
+  pulse: PulseSummary;
+  extension: { atrUsed: number | null; vwapAtr: number | null; legMoveAtr: number | null; extended: boolean };
+  plan: SignalPlan | null;
+  /** Null when the row had no option chain this cycle — the shortlist is finite. */
+  strike: StrikeChoice | null;
+  reasons: FactorReason[];
+  blockers: string[];
+}
 
 export type MetricValue = number | string | boolean | null;
 
@@ -54,6 +152,8 @@ export interface MomentumRow {
   direction: Direction;
   tradeType: TradeType;
   institutionalActivity: ActivityLevel;
+  /** WHEN, as opposed to what. Null only when the timing layer is switched off in config. */
+  signal: MomentumSignal | null;
   liquidity: { score: number | null; grade: LiquidityGrade | null };
   rvol: { value: number | null; grade: RvolGrade | null };
   vwap: { value: number | null; distancePct: number | null; rising: boolean | null };
@@ -101,6 +201,8 @@ export interface MomentumBoard {
   universeSize: number;
   scored: number;
   shortlisted: number;
+  igniting: number;
+  entrable: number;
   matched: number;
   returned: number;
   market: MarketContext;
@@ -148,7 +250,70 @@ export const tradeClass = (t: TradeType): string =>
     ? "text-bull border-emerald-700/70 bg-emerald-500/10"
     : t === "Momentum Sell"
       ? "text-bear border-red-800/70 bg-red-500/10"
-      : "text-muted border-border bg-white/[0.03]";
+      : t === "Watch"
+        ? "text-amber-300 border-amber-700/60 bg-amber-500/10"
+        : "text-muted border-border bg-white/[0.03]";
+
+/* --------------------------------------------------------------- timing display --- */
+
+/**
+ * The six states, in words a reader can act on.
+ *
+ * The wording matters more here than anywhere else on the page. `Extended` is the state that
+ * used to look like the best row on the board — highest score, every factor green — and the
+ * whole point of showing it is that somebody about to buy a call reads WHY not to.
+ */
+export const STATE_HELP: Record<SignalState, string> = {
+  Igniting: "The move is starting. The leg is in front of the entry, not behind it.",
+  Extending: "The leg is established and still working — enter on a pullback, not a chase.",
+  Extended: "Most of a normal day's range is already travelled. A high score here is describing what already happened.",
+  Stalling: "The leg has stopped making new extremes and volume has faded.",
+  Reversing: "The last few minutes are going against the day. A position taken on the day's direction is already wrong.",
+  Quiet: "Nothing is moving on the minute scale.",
+};
+
+export const stateClass = (s: SignalState): string =>
+  s === "Igniting"
+    ? "text-bull border-emerald-600 bg-emerald-500/15"
+    : s === "Extending"
+      ? "text-emerald-300 border-emerald-800/70 bg-emerald-500/10"
+      : s === "Extended"
+        ? "text-amber-300 border-amber-700/60 bg-amber-500/10"
+        : s === "Reversing"
+          ? "text-bear border-red-800/70 bg-red-500/10"
+          : s === "Stalling"
+            ? "text-[#c0a25c] border-[#6b5a2e] bg-amber-500/[0.06]"
+            : "text-muted border-border bg-white/[0.03]";
+
+export const actionClass = (a: SignalAction): string =>
+  a === "Buy Call"
+    ? "text-bull border-emerald-700/70 bg-emerald-500/10"
+    : a === "Buy Put"
+      ? "text-bear border-red-800/70 bg-red-500/10"
+      : a === "Watch"
+        ? "text-amber-300 border-amber-700/60 bg-amber-500/10"
+        : "text-muted border-border bg-white/[0.03]";
+
+/** "just now", "4m ago" — a trigger's whole value is its age. */
+export const ageStr = (min: number | null | undefined): string =>
+  min == null ? "—" : min < 1 ? "just now" : `${Math.round(min)}m ago`;
+
+/** ₹27,500 rather than ₹27500 — a lot cost is read at a glance or not at all. */
+export const rupees = (v: number | null | undefined): string =>
+  v == null ? "—" : `₹${Math.round(v).toLocaleString("en-IN")}`;
+
+export const moneynessClass = (m: StrikeChoice["moneyness"]): string =>
+  m === "ATM" ? "text-[#c7d2dc]" : m === "OTM" ? "text-accent" : "text-amber-300";
+
+/** Entry quality is a 0–100 like the score, and must not be read as one. */
+export const entryBand = (q: number): { fg: string; bg: string } =>
+  q >= 70
+    ? { fg: "#0b2e1a", bg: "#2ec76a" }
+    : q >= 50
+      ? { fg: "#0c2418", bg: "#8fdcae" }
+      : q >= 30
+        ? { fg: "#2b2410", bg: "#e2c15c" }
+        : { fg: "#e8e8ea", bg: "#39404d" };
 
 export const gradeClass = (g: LiquidityGrade | RvolGrade | null): string =>
   g === "Excellent" ? "text-bull"

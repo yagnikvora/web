@@ -178,12 +178,14 @@ interface Sel { script: string; exp: number; day: string }
 export default function OptionClockClient({ initial, script }: { initial: ClockLoad; script: string }) {
   const [data, setData] = useState<ClockLoad>(initial);
   const [sel, setSel] = useState<Sel>({ script, exp: initial.expiries[0]?.[0] ?? 0, day: initial.day });
-  const [updatedAt, setUpdatedAt] = useState(Date.now());
+  // Null until mounted — see `lib/live.ts`. Reading the clock during render makes the server
+  // and the browser disagree by a second or two, which hydrates as a text mismatch.
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [open, setOpen] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const first = useRef(true);
 
-  useEffect(() => { setOpen(isMarketOpen()); }, []);
+  useEffect(() => { setOpen(isMarketOpen()); setUpdatedAt(Date.now()); }, []);
 
   useEffect(() => {
     let alive = true;

@@ -15,10 +15,14 @@ import { fmt, tvLink } from "@/lib/format";
 import { SourceBadge } from "@/components/ui";
 import { SymbolAvatar } from "@/components/icons";
 import {
-  activityClass, buildUpClass, directionClass, ENRICHMENT_LABEL, formatMetric, gradeClass,
-  humaniseKey, IV_BASIS_LABEL, pctStr, scoreBand, tradeClass, xStr,
-  type FactorOutcome, type MomentumDetail,
+  actionClass, activityClass, ageStr, buildUpClass, directionClass, ENRICHMENT_LABEL, entryBand,
+  formatMetric, gradeClass, humaniseKey, IV_BASIS_LABEL, moneynessClass, pctStr, rupees,
+  scoreBand, stateClass, STATE_HELP, tradeClass, xStr,
+  type FactorOutcome, type MomentumDetail, type MomentumSignal,
 } from "@/lib/momentum";
+
+/** The timing layer moves in minutes, so this page is polled in tens of seconds. */
+const DETAIL_REFRESH_MS = 20_000;
 
 /* ------------------------------------------------------------------------ pieces --- */
 
@@ -98,6 +102,249 @@ function FactorCard({ f, totalWeight }: { f: FactorOutcome; totalWeight: number 
   );
 }
 
+/* --------------------------------------------------------------- the timing panel --- */
+
+/**
+ * Everything the timing layer knows, in the order a reader needs it.
+ *
+ * State first, because it is the one line that changes what to do. Then the trigger and its
+ * age, then the plan — and the blockers last but unmissable, since the common case for a
+ * high-scoring stock is that there IS a blocker and the whole value of this panel is saying
+ * which one in words rather than leaving a reader to infer it from a number.
+ */
+function TimingPanel({ signal, targetLabel }: { signal: MomentumSignal; targetLabel: string }) {
+  const band = entryBand(signal.entryQuality);
+  const p = signal.plan;
+  const e = signal.extension;
+  const pulse = signal.pulse;
+
+  return (
+    <section className="panel p-4 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <h2 className="text-[15px] font-semibold">Timing</h2>
+        <span className={`inline-block rounded-full border px-2.5 py-[4px] text-[12px] font-bold ${stateClass(signal.state)}`}>
+          {signal.state}
+        </span>
+        <span className={`inline-block rounded-full border px-2.5 py-[4px] text-[12px] font-bold ${actionClass(signal.action)}`}>
+          {signal.action}
+        </span>
+        <span className="ml-auto flex items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted">Entry quality</span>
+          <span
+            className="inline-block min-w-[42px] text-center rounded-[8px] px-2 py-[5px] text-[15px] leading-[13px] font-black tabular-nums"
+            style={{ background: band.bg, color: band.fg }}
+          >
+            {signal.entryQuality}
+          </span>
+        </span>
+      </div>
+
+      <p className="text-[12.5px] text-muted mb-4 max-w-3xl leading-[17px]">{STATE_HELP[signal.state]}</p>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4">
+        <Stat
+          label="Trigger"
+          value={signal.trigger ? signal.trigger.label : "none"}
+          hint="The level that was crossed, dated from when it was first crossed — not from when the condition was last true."
+        />
+        <Stat
+          label="Fired"
+          value={ageStr(signal.trigger?.ageMin)}
+          cls={(signal.freshness ?? 0) > 50 ? "text-bull" : (signal.freshness ?? 0) > 0 ? "text-amber-300" : "text-muted"}
+        />
+        <Stat
+          label="Since trigger"
+          value={signal.trigger ? pctStr(signal.trigger.movedSincePct) : "—"}
+          hint="How much of the move has already gone, measured from the trigger price"
+        />
+        <Stat
+          label="Last minutes"
+          value={signal.microDirection}
+          cls={directionClass(signal.microDirection)}
+          hint="The direction of the last few minutes, which can disagree with the day's"
+        />
+        <Stat
+          label="Day's range used"
+          value={e.atrUsed == null ? "—" : `${(e.atrUsed * 100).toFixed(0)}%`}
+          cls={e.extended ? "text-amber-300" : "text-bull"}
+          hint="Today's true range as a fraction of this stock's average day. Past ~80% there is little left to pay a further leg."
+        />
+        <Stat
+          label="Stretch from VWAP"
+          value={e.vwapAtr == null ? "—" : `${e.vwapAtr.toFixed(2)} ATR`}
+          cls={(e.vwapAtr ?? 0) > 1 ? "text-amber-300" : "text-muted"}
+        />
+      </div>
+
+      {/* ---- what the last minutes measured ---- */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4 mt-4 pt-4 border-t border-border">
+        <Stat label="Move (window)" value={pctStr(pulse.movePct)} cls={(pulse.movePct ?? 0) >= 0 ? "text-bull" : "text-bear"} />
+        <Stat
+          label="Volume burst"
+          value={xStr(pulse.burstRvol)}
+          hint="Volume in the window against what this stock normally trades in the same minutes. Unlike day RVOL this spikes as a move starts."
+        />
+        <Stat
+          label="One-directional"
+          value={pulse.efficiency == null ? "—" : `${(pulse.efficiency * 100).toFixed(0)}%`}
+          cls={(pulse.efficiency ?? 0) >= 0.65 ? "text-bull" : "text-muted"}
+          hint="Share of the movement that went one way. High is a leg; low is a fight."
+        />
+        <Stat label="Leg age" value={pulse.legAgeMin == null ? "—" : `${pulse.legAgeMin.toFixed(0)}m`} />
+        <Stat label="Leg move" value={pctStr(pulse.legMovePct)} />
+        <Stat
+          label="Pullback"
+          value={pulse.pullback == null ? "—" : `${(pulse.pullback * 100).toFixed(0)}%`}
+          hint="How far price has come back off the leg's extreme"
+        />
+      </div>
+
+      {/* ---- the plan ---- */}
+      {p && (
+        <div className="mt-4 pt-4 border-t border-border">
+          <div className="flex items-baseline gap-2 mb-3">
+            <h3 className="text-[13.5px] font-semibold">If taken here</h3>
+            <span className="text-[11px] text-muted">
+              {p.basis === "strike"
+                ? "priced off the contract below, net of its own bid-ask"
+                : p.basis === "chain"
+                  ? "priced off the ATM delta, gamma and premium quoted on the chain"
+                  : "priced off ATR only — no option chain for this row this cycle"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4">
+            <Stat label="Entry" value={fmt(p.entry)} />
+            <Stat label="Stop" value={fmt(p.stop)} cls="text-bear" hint={`${p.stopPct.toFixed(2)}% away`} />
+            <Stat label="Target" value={fmt(p.target)} cls="text-bull" hint={`${p.targetPct.toFixed(2)}% away`} />
+            <Stat label="Reward : risk" value={p.rewardRisk == null ? "—" : `${p.rewardRisk.toFixed(2)}×`} />
+            <Stat
+              label="Option at target"
+              value={p.optionMovePctAtTarget == null ? "—" : `${p.optionMovePctAtTarget >= 0 ? "+" : ""}${p.optionMovePctAtTarget.toFixed(0)}%`}
+              cls={(p.optionMovePctAtTarget ?? 0) > 0 ? "text-bull" : "text-muted"}
+              hint="First-order estimate from delta and gamma. Ignores time decay and any change in implied volatility over the hold."
+            />
+            <Stat
+              label={`Stock needed for ${targetLabel}`}
+              value={p.underlyingMovePctForTargetOption == null ? "—" : `${p.underlyingMovePctForTargetOption.toFixed(2)}%`}
+              cls={p.meetsOptionTarget === false ? "text-amber-300" : p.meetsOptionTarget ? "text-bull" : ""}
+              hint={
+                p.meetsOptionTarget === false
+                  ? "More than the room this plan thinks is left — the setup is real but the prize is smaller than that."
+                  : "Inside the room this plan thinks is left."
+              }
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ---- the contract ---- */}
+      {signal.strike && (
+        <div className="mt-4 pt-4 border-t border-border">
+          <div className="flex flex-wrap items-baseline gap-2 mb-3">
+            <h3 className="text-[13.5px] font-semibold">Contract to buy</h3>
+            <span className={`text-[15px] font-black ${signal.strike.type === "CE" ? "text-bull" : "text-bear"}`}>
+              {signal.strike.label}
+            </span>
+            <span className={`text-[11px] font-bold ${moneynessClass(signal.strike.moneyness)}`}>
+              {signal.strike.moneyness}
+            </span>
+            <span className="text-[11px] text-muted">
+              {signal.strike.expiry} · {signal.strike.expiryDays}d — {signal.strike.reason}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4">
+            <Stat
+              label="Cost to enter"
+              value={`₹${signal.strike.entryCost.toFixed(2)}`}
+              hint="The ask, not the last traded price — this is what getting in costs."
+            />
+            <Stat
+              label="One lot"
+              value={rupees(signal.strike.costPerLot)}
+              hint={signal.strike.lotSize ? `${signal.strike.lotSize} shares a lot` : "lot size unresolved"}
+            />
+            <Stat
+              label="At target"
+              value={
+                signal.strike.premiumAtTarget == null
+                  ? "—"
+                  : `₹${signal.strike.premiumAtTarget.toFixed(2)}`
+              }
+              cls="text-bull"
+              hint="Second-order in gamma. Ignores decay and any IV change over the hold."
+            />
+            <Stat
+              label="Gain at target"
+              value={signal.strike.gainPctAtTarget == null ? "—" : `${signal.strike.gainPctAtTarget >= 0 ? "+" : ""}${signal.strike.gainPctAtTarget.toFixed(0)}%`}
+              cls={(signal.strike.gainPctAtTarget ?? 0) >= 30 ? "text-bull" : "text-muted"}
+              hint="Net of paying the ask and selling the bid"
+            />
+            <Stat
+              label="Per lot"
+              value={signal.strike.profitPerLot == null ? "—" : rupees(signal.strike.profitPerLot)}
+              cls={(signal.strike.profitPerLot ?? 0) >= 0 ? "text-bull" : "text-bear"}
+            />
+            <Stat label="Break-even" value={fmt(signal.strike.breakEven ?? 0)} hint="Underlying price at expiry" />
+            <Stat label="Delta" value={Math.abs(signal.strike.delta).toFixed(2)} />
+            <Stat
+              label="Bid / ask"
+              value={`${signal.strike.bid.toFixed(2)} / ${signal.strike.ask.toFixed(2)}`}
+              cls={(signal.strike.spreadPct ?? 0) > 3 ? "text-amber-300" : ""}
+              hint={signal.strike.spreadPct == null ? "one-sided book" : `${signal.strike.spreadPct.toFixed(1)}% of the mid`}
+            />
+            <Stat
+              label="Decay"
+              value={signal.strike.thetaPctPerHour == null ? "—" : `${signal.strike.thetaPctPerHour.toFixed(1)}%/hr`}
+              cls={(signal.strike.thetaPctPerHour ?? 0) > 3 ? "text-amber-300" : "text-muted"}
+              hint="Of the premium, per hour held"
+            />
+            <Stat label="Open interest" value={signal.strike.oi.toLocaleString("en-IN")} />
+            <Stat label="Volume" value={signal.strike.volume.toLocaleString("en-IN")} />
+            <Stat label="IV" value={signal.strike.iv == null ? "—" : `${signal.strike.iv.toFixed(1)}%`} />
+          </div>
+
+          {signal.strike.warnings.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {signal.strike.warnings.map((w, i) => (
+                <li key={i} className="text-[12px] text-amber-300/90 leading-[16px]">⚠ {w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* ---- why it is or is not an entry ---- */}
+      <div className="grid gap-4 lg:grid-cols-2 mt-4 pt-4 border-t border-border">
+        <ul className="space-y-1">
+          {signal.reasons.map((r, i) => (
+            <li key={i} className={`text-[12.5px] leading-[16px] ${r.ok ? "text-[#c7d2dc]" : "text-[#7d8895]"}`}>
+              <span className={r.ok ? "text-bull" : "text-bear"}>{r.ok ? "✓" : "✗"}</span> {r.text}
+            </li>
+          ))}
+        </ul>
+
+        {signal.blockers.length > 0 && (
+          <div className="rounded-lg border border-amber-800/50 bg-amber-500/[0.06] p-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-amber-300 mb-1.5">
+              Why this is not an entry right now
+            </div>
+            <ul className="text-[12.5px] text-[#c7d2dc] space-y-1 list-disc pl-4 leading-[16px]">
+              {signal.blockers.map((b, i) => <li key={i}>{b}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {pulse.note && (
+        <p className="mt-3 text-[11.5px] text-amber-300/80 leading-[15px] border-l-2 border-amber-700/50 pl-2">
+          {pulse.note}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Score through the recorded sessions. Inline SVG — this is one line, not a chart library. */
 function HistorySpark({ points }: { points: { day: string; score: number }[] }) {
   if (points.length < 2) {
@@ -138,7 +385,11 @@ function HistorySpark({ points }: { points: { day: string; score: number }[] }) 
 export default function DetailClient({ initial, source, symbol }: {
   initial: MomentumDetail; source?: string; symbol: string;
 }) {
-  const { data } = useLiveData<MomentumDetail>(initial, `/api/momentum/${encodeURIComponent(symbol)}`);
+  const { data } = useLiveData<MomentumDetail>(
+    initial,
+    `/api/momentum/${encodeURIComponent(symbol)}`,
+    DETAIL_REFRESH_MS,
+  );
   const row = data.row;
   const factors = row.factors ?? [];
 
@@ -223,6 +474,9 @@ export default function DetailClient({ initial, source, symbol }: {
           />
         </div>
       </section>
+
+      {/* ---- timing: whether there is any move left to buy ---- */}
+      {row.signal && <TimingPanel signal={row.signal} targetLabel="a 35% option gain" />}
 
       {/* ---- the numbers the brief asks the detail page for ---- */}
       <section className="panel p-4 mb-4">
