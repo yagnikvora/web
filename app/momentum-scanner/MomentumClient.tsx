@@ -23,9 +23,9 @@ import { fmt } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
 import {
-  actionClass, activityClass, ageStr, buildUpClass, directionClass, ENRICHMENT_LABEL, entryBand,
-  gradeClass, IV_BASIS_LABEL, moneynessClass, pctStr, rupees, scoreBand, stateClass, STATE_HELP,
-  tradeClass, xStr,
+  actionClass, activityClass, ageStr, buildUpClass, convictionBand, directionClass,
+  ENRICHMENT_LABEL, entryBand, gradeClass, heldStr, IV_BASIS_LABEL, moneynessClass, pctStr,
+  phaseClass, rupees, scoreBand, stateClass, STATE_HELP, tradeClass, xStr,
   type Confidence, type Direction, type MomentumBoard, type MomentumRow, type MomentumSignal,
   type SignalState, type TradeType,
 } from "@/lib/momentum";
@@ -65,6 +65,40 @@ const Pill = ({ children, cls }: { children: React.ReactNode; cls: string }) => 
     {children}
   </span>
 );
+
+/**
+ * How one-sided the whole SESSION has been — the reading the score cannot contain.
+ *
+ * Every one of the twelve original factors is either cumulative magnitude or a three-minute
+ * micro reading, so the board could not distinguish a stock that walked one direction for five
+ * hours from one that gapped and then chopped: same change, same relative volume, same ATR
+ * expansion, same relative strength. It ranked the second higher, because chop is what
+ * generates the volume bursts the pulse rewards. This column is the difference.
+ */
+function ConvictionCell({ row }: { row: MomentumRow }) {
+  const c = row.conviction;
+  if (!c || !c.ready) return <span className="text-muted text-[13px]">—</span>;
+
+  const band = convictionBand(c.score);
+  return (
+    <div className="flex items-center gap-2" title={c.summary}>
+      <span
+        className="inline-block min-w-[40px] text-center rounded-[8px] px-2 py-[6px] text-[14px] leading-[13px] font-black tabular-nums"
+        style={{ background: band.bg, color: band.fg }}
+      >
+        {c.score.toFixed(0)}
+      </span>
+      {c.phase !== "None" && (
+        <div className="flex flex-col gap-[3px]">
+          <Pill cls={phaseClass(c.phase)}>{c.phase}</Pill>
+          {c.heldMin != null && c.heldMin >= 1 && (
+            <span className="text-[11px] text-muted tabular-nums">{heldStr(c.heldMin)}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const CONF_CLASS: Record<Confidence, string> = {
   High: "text-bull border-emerald-800 bg-emerald-500/10",
@@ -462,6 +496,14 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
     { h: "Price", val: (r) => r.price, render: (r) => <Num>{fmt(r.price)}</Num> },
     { h: "Chg %", val: (r) => r.changePct, render: (r) => <PctChip v={r.changePct} /> },
     { h: "Score", val: (r) => r.score, render: (r) => <ScoreCell row={r} /> },
+    // Placed immediately after the score, because the two have to be read together. A 61
+    // beside "Confirmed 84" and an 84 beside "None 11" are opposite stocks, and until this
+    // column existed the board showed only the first number of each pair.
+    {
+      h: "Conviction",
+      val: (r) => r.conviction?.score ?? -1,
+      render: (r) => <ConvictionCell row={r} />,
+    },
     {
       h: "Timing",
       val: (r) => r.signal?.freshness ?? -1,

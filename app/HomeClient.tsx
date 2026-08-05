@@ -12,13 +12,9 @@ import type { HeadlineIndex, MoverRow, Overview } from "@/lib/overview";
 // for the card, not the one-line tooltip the nav needs.
 const CARDS: { href: string; tag: string; desc: string }[] = [
   { href: "/market-pulse", tag: "Stocks", desc: "Real-time momentum, breakout & power scanners for F&O stocks." },
-  { href: "/insider-strategy", tag: "Stocks", desc: "Structure-based signals — contraction breakout, momentum spikes, LOM." },
   { href: "/sector-scope", tag: "Stocks", desc: "Sector + stock heatmap treemap weighted by strength." },
-  { href: "/swing-spectrum", tag: "Stocks", desc: "10/50-day breakout, channel, NR7 & reversal swing scanners." },
   { href: "/option-clock", tag: "Index", desc: "Live OI per strike, PCR trend, and net position build-up." },
   { href: "/option-apex", tag: "Index", desc: "Index chart, sentiment & PCR dials, and Money Flux." },
-  { href: "/index-mover", tag: "Index", desc: "Which stocks are driving the index up or down, point by point." },
-  { href: "/fii-dii", tag: "Index", desc: "Daily institutional cash-market buy / sell / net flows." },
 ];
 
 const inr = (n: number, d = 2) =>

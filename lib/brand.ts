@@ -37,14 +37,14 @@ export const MODULES: Record<string, { label: string; gloss: string }> = {
     label: 'Momentum Scanner',
     gloss: 'Institutional momentum score across every F&O stock, with the reasoning shown',
   },
+  '/trend-day': {
+    label: 'Trend Day',
+    gloss: 'Stocks going one direction all session, ranked by conviction and held steady',
+  },
   '/market-pulse': { label: 'Market Pulse', gloss: 'Live momentum, breakout and power scanners' },
-  '/insider-strategy': { label: 'Insider Strategy', gloss: 'Structure-based strategy scanners' },
   '/sector-scope': { label: 'Sector Scope', gloss: 'Sector strength heatmap' },
-  '/swing-spectrum': { label: 'Swing Spectrum', gloss: 'Multi-day swing setups' },
   '/option-clock': { label: 'Option Clock', gloss: 'Open-interest clock and PCR trend' },
   '/option-apex': { label: 'Option Apex', gloss: 'Index chart, money flux and sentiment dials' },
-  '/index-mover': { label: 'Index Mover', gloss: 'Which stocks are moving the index' },
-  '/fii-dii': { label: 'FII / DII', gloss: 'Institutional buying and selling' },
 };
 
 export const moduleLabel = (href: string) => MODULES[href]?.label ?? href;

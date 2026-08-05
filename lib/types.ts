@@ -21,6 +21,8 @@ export interface MarketPulse {
 export interface SectorStock { Symbol: string; ltp: number; open: number; prevClose: number; pChange: number; rFactor: number; weight: number; }
 export type SectorScope = Record<string, SectorStock[]>;
 
+// The /index-mover page is gone; these are not. Option Apex embeds a point-contribution
+// panel (see lib/apex.ts) that reads the same endpoint and needs both shapes.
 export interface MoverStock { Symbol: string; per_change: number; per_to_index: number; point_to_index: number; }
 export interface IndexMover { index: string; level: number; points: number | null; pct: number | null; gainers: number; losers: number; stocks: MoverStock[]; }
 
@@ -74,7 +76,3 @@ export interface ApexDials {
   buckets: number; // flux readings behind the sentiment dial
 }
 
-export interface ScanRow { Symbol: string; pChange: number; price: number; signal?: Signal; when: string; score?: number; }
-export type ScannerGroups = Record<string, ScanRow[]>;
-
-export interface FiiDiiRow { date: string; fiiBuy: number; fiiSell: number; fiiNet: number; inMarket: number; diiNet: number; diiBuy: number; diiSell: number; }

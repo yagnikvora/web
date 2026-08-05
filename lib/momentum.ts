@@ -9,8 +9,9 @@
 // looks missing rather than looking like a reading of zero.
 
 export type FactorKey =
-  | "momentumPulse" | "rvol" | "liquidity" | "relativeStrength" | "vwap" | "optionFlow" | "greeks"
-  | "impliedVolatility" | "atrExpansion" | "sectorStrength" | "marketBreadth" | "trendStructure";
+  | "momentumPulse" | "trendQuality" | "rvol" | "liquidity" | "relativeStrength" | "vwap"
+  | "optionFlow" | "greeks" | "impliedVolatility" | "atrExpansion" | "sectorStrength"
+  | "marketBreadth" | "trendStructure";
 
 export type Confidence = "High" | "Medium" | "Low";
 export type Direction = "Bullish" | "Bearish" | "Neutral";
@@ -26,10 +27,46 @@ export interface FactorReason { ok: boolean; text: string }
 
 /* ------------------------------------------------------------------ timing layer --- */
 
-export type SignalState = "Igniting" | "Extending" | "Extended" | "Stalling" | "Reversing" | "Quiet";
+export type SignalState =
+  | "Igniting" | "Trending" | "Extending" | "Extended" | "Stalling" | "Reversing" | "Quiet";
 export type SignalAction = "Buy Call" | "Buy Put" | "Watch" | "Stand Aside";
 export type TriggerKind =
-  | "baseBreak" | "vwapReclaim" | "vwapLoss" | "orbBreak" | "dayExtreme" | "priorRange" | "thrust";
+  | "baseBreak" | "vwapReclaim" | "vwapLoss" | "orbBreak" | "dayExtreme" | "priorRange"
+  | "thrust" | "trendPullback";
+
+/* -------------------------------------------------------------- conviction layer --- */
+
+export type TrendPhase = "None" | "Forming" | "Confirmed" | "Faded";
+
+/**
+ * The session-scale read: has this stock gone ONE WAY all day.
+ *
+ * Neither the score nor the timing layer could answer this. The score is cumulative magnitude
+ * and peaks once the move is over; the timing layer measures the last three minutes. A stock
+ * that grinds one direction for five hours scores modestly on both — a steady grind has no
+ * volume burst and little velocity — which is why a board built from them showed a churn of
+ * spiky names and never the stock that was quietly trending all session.
+ */
+export interface ConvictionSummary {
+  ready: boolean;
+  /** 0–100. The Trend Day view's ranking key. */
+  score: number;
+  phase: TrendPhase;
+  direction: Direction;
+  /** Minutes the current phase has held. The persistence that stops the list churning. */
+  heldMin: number | null;
+  /** Highest conviction reached today, so a faded row still says what it once was. */
+  peak: number;
+  vwapAdherence: number | null;
+  vwapCrossings: number | null;
+  sessionEfficiency: number | null;
+  rangePosition: number | null;
+  deepestPullbackAtr: number | null;
+  /** True when a restart missed part of the session, so every share above is partial. */
+  partial: boolean;
+  summary: string;
+  note?: string;
+}
 
 export interface SignalTrigger {
   kind: TriggerKind;
@@ -114,10 +151,27 @@ export interface MomentumSignal {
   microDirection: Direction;
   aligned: boolean | null;
   pulse: PulseSummary;
-  extension: { atrUsed: number | null; vwapAtr: number | null; legMoveAtr: number | null; extended: boolean };
+  extension: {
+    /** Intraday range ÷ ATR, gap EXCLUDED — the reading the ceiling is applied to. */
+    atrUsed: number | null;
+    /** True range ÷ ATR, gap included. Context only; not gated on. */
+    trueRangeAtrUsed: number | null;
+    gapAtr: number | null;
+    vwapAtr: number | null;
+    legMoveAtr: number | null;
+    /** What the ceilings were scaled by. 1 on an ordinary day, higher on a trend day. */
+    budgetMultiplier: number;
+    /** The ceiling actually applied. 0 means it was withdrawn on a confirmed trend day. */
+    atrUsedMax: number;
+    extended: boolean;
+  };
   plan: SignalPlan | null;
   /** Null when the row had no option chain this cycle — the shortlist is finite. */
   strike: StrikeChoice | null;
+  /** Which kind of entry this is, so the contract on it reads correctly. */
+  entryKind: "ignition" | "pullback" | "trend" | null;
+  /** How many trend-day re-entries have fired on this stock today. */
+  trendEntriesToday: number;
   reasons: FactorReason[];
   blockers: string[];
 }
@@ -154,6 +208,10 @@ export interface MomentumRow {
   institutionalActivity: ActivityLevel;
   /** WHEN, as opposed to what. Null only when the timing layer is switched off in config. */
   signal: MomentumSignal | null;
+  /** Whether the day has been one-sided. Null only when the conviction layer is off. */
+  conviction: ConvictionSummary | null;
+  /** Why the row is where it is in the list, and how settled that position is. */
+  stability: { rankScore: number; drift: number; heldMin: number | null };
   liquidity: { score: number | null; grade: LiquidityGrade | null };
   rvol: { value: number | null; grade: RvolGrade | null };
   vwap: { value: number | null; distancePct: number | null; rising: boolean | null };
@@ -203,10 +261,34 @@ export interface MomentumBoard {
   shortlisted: number;
   igniting: number;
   entrable: number;
+  trendConfirmed: number;
+  trendForming: number;
+  trendFaded: number;
   matched: number;
   returned: number;
   market: MarketContext;
   rows: MomentumRow[];
+  warnings: string[];
+}
+
+/** GET /momentum/trend — the one-sided-day feed behind the Trend Day view. */
+export interface TrendBoard {
+  asOf: number;
+  configVersion: number;
+  market: MarketContext;
+  trendConfirmed: number;
+  trendForming: number;
+  trendFaded: number;
+  matched: number;
+  returned: number;
+  phase: { confirmedFrom: number; formingFrom: number };
+  rows: MomentumRow[];
+  /**
+   * Days that WERE one-sided and have stopped being. Carried separately from `rows` so a
+   * client cannot render a expired thesis as a candidate — but carried, because somebody is
+   * holding these and that is the most useful thing the feed can say.
+   */
+  fading: MomentumRow[];
   warnings: string[];
 }
 
@@ -265,6 +347,9 @@ export const tradeClass = (t: TradeType): string =>
  */
 export const STATE_HELP: Record<SignalState, string> = {
   Igniting: "The move is starting. The leg is in front of the entry, not behind it.",
+  Trending:
+    "A one-sided day that is still intact. The trade here is each pullback, not the break — that " +
+    "was hours ago. The range ceiling is relaxed because a wide range is what a trend day IS.",
   Extending: "The leg is established and still working — enter on a pullback, not a chase.",
   Extended: "Most of a normal day's range is already travelled. A high score here is describing what already happened.",
   Stalling: "The leg has stopped making new extremes and volume has faded.",
@@ -275,15 +360,65 @@ export const STATE_HELP: Record<SignalState, string> = {
 export const stateClass = (s: SignalState): string =>
   s === "Igniting"
     ? "text-bull border-emerald-600 bg-emerald-500/15"
-    : s === "Extending"
-      ? "text-emerald-300 border-emerald-800/70 bg-emerald-500/10"
-      : s === "Extended"
-        ? "text-amber-300 border-amber-700/60 bg-amber-500/10"
-        : s === "Reversing"
-          ? "text-bear border-red-800/70 bg-red-500/10"
-          : s === "Stalling"
-            ? "text-[#c0a25c] border-[#6b5a2e] bg-amber-500/[0.06]"
-            : "text-muted border-border bg-white/[0.03]";
+    : s === "Trending"
+      ? "text-[#7dd3fc] border-sky-700/70 bg-sky-500/10"
+      : s === "Extending"
+        ? "text-emerald-300 border-emerald-800/70 bg-emerald-500/10"
+        : s === "Extended"
+          ? "text-amber-300 border-amber-700/60 bg-amber-500/10"
+          : s === "Reversing"
+            ? "text-bear border-red-800/70 bg-red-500/10"
+            : s === "Stalling"
+              ? "text-[#c0a25c] border-[#6b5a2e] bg-amber-500/[0.06]"
+              : "text-muted border-border bg-white/[0.03]";
+
+/* -------------------------------------------------------------- conviction layer --- */
+
+export const PHASE_HELP: Record<TrendPhase, string> = {
+  None: "Not one-sided — or it has not moved far enough for the shape to mean anything.",
+  Forming:
+    "The shape looks one-sided but has not held long enough to be trusted. Roughly the first hour. " +
+    "A fair share of these decay into chop by noon.",
+  Confirmed:
+    "Adherence to one side of VWAP, crossing count, path efficiency and pullback depth have all held. " +
+    "This is the state a stock that walks one direction all day lives in from mid-morning.",
+  Faded:
+    "It WAS one-sided and has stopped being. The most dangerous row on the board: anyone still holding " +
+    "it is holding it on a thesis that has expired.",
+};
+
+export const phaseClass = (p: TrendPhase): string =>
+  p === "Confirmed"
+    ? "text-bull border-emerald-600 bg-emerald-500/15"
+    : p === "Forming"
+      ? "text-[#7dd3fc] border-sky-700/70 bg-sky-500/10"
+      : p === "Faded"
+        ? "text-bear border-red-800/70 bg-red-500/10"
+        : "text-muted border-border bg-white/[0.03]";
+
+/** The conviction chip's colour band. Mirrors `scoreBand` so the two read consistently. */
+export function convictionBand(v: number): { fg: string; bg: string } {
+  if (v >= 80) return { fg: "#0b1f16", bg: "#34d399" };
+  if (v >= 65) return { fg: "#0b1f16", bg: "#6ee7b7" };
+  if (v >= 50) return { fg: "#231b06", bg: "#fbbf24" };
+  return { fg: "#c7d2dc", bg: "rgba(255,255,255,0.06)" };
+}
+
+/** "4h 12m" — a trend day's tenure is read in hours, not in 252 minutes. */
+export const heldStr = (min: number | null | undefined): string => {
+  if (min == null) return "—";
+  if (min < 60) return `${Math.round(min)}m`;
+  return `${Math.floor(min / 60)}h ${Math.round(min % 60)}m`;
+};
+
+export const ENTRY_KIND_HELP: Record<"ignition" | "pullback" | "trend", string> = {
+  ignition: "A fresh break. Short hold, and leverage is worth paying for.",
+  pullback: "A retracement inside an ordinary established leg.",
+  trend:
+    "A retracement inside a confirmed one-sided day. Expected hold 30–90 minutes, so the strike is " +
+    "picked in a delta band rather than on raw payoff — over three or four entries in a day, the " +
+    "cheapest contract costs more in spread than it makes in leverage.",
+};
 
 export const actionClass = (a: SignalAction): string =>
   a === "Buy Call"
