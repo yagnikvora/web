@@ -19,7 +19,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useLiveData } from "@/lib/live";
-import { fmt } from "@/lib/format";
+import { fmt, istClock } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
 import {
@@ -662,7 +662,7 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
             and a scanner header is the last place to spend a re-render on. */}
         <span className="text-[12px] text-muted">
           config v{board.configVersion}
-          {updatedAt !== null && ` · updated ${new Date(updatedAt).toLocaleTimeString("en-IN", { hour12: false })}`}
+          {updatedAt !== null && ` · updated ${istClock(updatedAt, true)}`}
         </span>
       </div>
 

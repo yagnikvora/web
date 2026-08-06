@@ -41,6 +41,10 @@ export const MODULES: Record<string, { label: string; gloss: string }> = {
     label: 'Trend Day',
     gloss: 'Stocks going one direction all session, ranked by conviction and held steady',
   },
+  '/pullback-scanner': {
+    label: 'EMA Pullback',
+    gloss: '9/20 EMA pullback continuation entries — trend, retracement, candle and volume confirmation',
+  },
   '/market-pulse': { label: 'Market Pulse', gloss: 'Live momentum, breakout and power scanners' },
   '/sector-scope': { label: 'Sector Scope', gloss: 'Sector strength heatmap' },
   '/option-clock': { label: 'Option Clock', gloss: 'Open-interest clock and PCR trend' },

@@ -8,7 +8,7 @@ import { BRAND, VIEWER, moduleGloss, moduleLabel } from "@/lib/brand";
 // deliberately NOT derived from them: a route is what people bookmark and what search
 // engines hold, so renaming a module must not break either.
 const GROUPS: { label: string; items: string[] }[] = [
-  { label: "Stocks", items: ["/momentum-scanner", "/trend-day", "/market-pulse", "/sector-scope"] },
+  { label: "Stocks", items: ["/momentum-scanner", "/trend-day", "/pullback-scanner", "/market-pulse", "/sector-scope"] },
   { label: "Index", items: ["/option-clock", "/option-apex"] },
 ];
 

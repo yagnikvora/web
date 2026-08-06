@@ -7,6 +7,7 @@
 // the same way whichever expiry is on screen.
 
 import type { OiSnapshot } from "./types";
+import { istClockS } from "./format";
 
 const CONTRACT = /^NFO:[A-Z]+?\d{2}(?:[1-9OND]\d{2}|[A-Z]{3})(\d+)(CE|PE)$/;
 
@@ -104,9 +105,8 @@ export function dayLabel(day: string, nowMs = Date.now()): string {
   return `${DOW[at.getUTCDay()]}, ${d} ${MONTHS[m - 1]}`;
 }
 
-/** "09:15" for an epoch, read in IST whatever timezone the browser is in. */
-export const istTime = (epochS: number) =>
-  new Date((epochS + IST_OFFSET_S) * 1000).toISOString().slice(11, 16);
+/** "09:15 AM" for an epoch, read in IST whatever timezone the browser is in. */
+export const istTime = (epochS: number) => istClockS(epochS);
 
 /* ---------- expiry labels ---------- */
 

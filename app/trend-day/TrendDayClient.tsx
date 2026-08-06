@@ -29,6 +29,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useLiveData } from "@/lib/live";
+import { istClock } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
 import {
@@ -258,7 +259,7 @@ export default function TrendDayClient({ initial, source }: { initial: TrendBoar
   );
 
   const cols = useMemo(columns, []);
-  const asOf = new Date(data.asOf).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+  const asOf = istClock(data.asOf, true);
 
   return (
     <main className="p-5 flex flex-col gap-5">
