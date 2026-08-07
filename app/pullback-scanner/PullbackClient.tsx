@@ -31,8 +31,8 @@ import AlertFeed from "./AlertFeed";
 import Backtester from "./Backtester";
 import HistoryPanel from "./HistoryPanel";
 import {
-  ageStr, atrStr, bandClass, bandColours, bestOf, confidenceOf, ENTRY_KIND_HELP,
-  liquidityClass, moneynessClass, n, PATTERN_LABEL, PHASE_HELP, PHASE_SHORT, phaseClass, pctStr,
+  ageStr, atrStr, bandColours, bestOf, confidenceOf, ENTRY_KIND_HELP,
+  liquidityClass, moneynessClass, PATTERN_LABEL, PHASE_HELP, PHASE_SHORT, phaseClass, pctStr,
   rupees, TIMEFRAME_LABEL, TIMEFRAMES, trendClass, xStr,
   type ConfidenceBand, type PullbackBoard, type PullbackRow, type PullbackSignal, type Timeframe,
   type TrendState,
@@ -45,12 +45,6 @@ import {
 const REFRESH_MS = 20_000;
 
 /* ------------------------------------------------------------------------- pieces --- */
-
-const Pill = ({ children, cls, title }: { children: React.ReactNode; cls: string; title?: string }) => (
-  <span title={title} className={`inline-block rounded-full border px-2.5 py-[5px] text-[12px] font-bold whitespace-nowrap ${cls}`}>
-    {children}
-  </span>
-);
 
 const Dash = ({ title }: { title?: string }) => (
   <span className="text-muted text-[13px]" title={title}>—</span>
