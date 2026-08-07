@@ -243,6 +243,14 @@ export interface PullbackSignal {
   entry: number;
   price: number;
   movedSincePct: number;
+  /**
+   * The same move in R — how much of the plan's own risk the live price has already spent.
+   *
+   * Percent cannot answer "is this still the trade on the row" and this can: a 0.4% run is nothing
+   * against a 1.5% stop and is most of the trade against a 0.5% one. Null when the plan has no
+   * priceable risk, and absent on a signal served by an API older than the field.
+   */
+  entryDriftR?: number | null;
   score: ScoreBreakdown;
   stop: StopPlan;
   target: TargetPlan;

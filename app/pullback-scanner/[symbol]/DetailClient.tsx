@@ -453,6 +453,16 @@ export default function DetailClient({ initial, source }: { initial: PullbackDet
               {row?.signal && (
                 <div className={`text-[11.5px] tabular-nums ${signal.movedSincePct >= 0 ? "text-bull" : "text-bear"}`}>
                   {pctStr(signal.movedSincePct)} since it fired
+                  {/* In R as well as in percent, because that is the form that says whether the
+                      entry still exists. The plan's stop and target are measured from `entry`, so a
+                      drift of +0.30R has already spent a third of the risk this row is quoting. */}
+                  {typeof signal.entryDriftR === "number" && (
+                    <span className="text-muted">
+                      {" · "}
+                      {signal.entryDriftR >= 0 ? "+" : ""}
+                      {signal.entryDriftR.toFixed(2)}R of the risk
+                    </span>
+                  )}
                 </div>
               )}
             </div>
