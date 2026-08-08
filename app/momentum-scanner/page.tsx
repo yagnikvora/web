@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { fetchData } from "@/lib/api";
 import type { MomentumBoard } from "@/lib/momentum";
 import MomentumClient from "./MomentumClient";
+import MomentumSkeleton from "./Skeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,7 @@ export const metadata = {
     "relative strength, option OI build-up, Greeks and volatility, scored 0–100 with the reasoning shown.",
 };
 
-export default async function Page() {
+async function Board() {
   // The board carries its own warnings — a missing baseline, a rate-limited endpoint, an IV
   // history still warming — and those are part of the page, not an error condition. The one
   // case worth rendering separately is a backend that answered nothing at all, because a
@@ -45,4 +47,15 @@ export default async function Page() {
   }
 
   return <MomentumClient initial={board.data} source={board.source} />;
+}
+
+// Non-async on purpose: the fetch sits behind the Suspense boundary so the shell flushes
+// immediately and the skeleton paints while the board is still being fetched and
+// serialised. See the longer note in ../pullback-scanner/page.tsx.
+export default function Page() {
+  return (
+    <Suspense fallback={<MomentumSkeleton />}>
+      <Board />
+    </Suspense>
+  );
 }

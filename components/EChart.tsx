@@ -17,7 +17,13 @@ import type { ECharts, EChartsCoreOption } from "echarts";
  */
 export default function EChart({ option, height, className = "" }: {
   option: EChartsCoreOption;
-  height: number;
+  /**
+   * A number is px. A CSS length is passed through, which is how the callers give a chart
+   * a height that shrinks on a phone — `clamp(280px, 50vh, 620px)` rather than a fixed 620
+   * that would leave a strike ladder taller than the screen it is read on. The
+   * ResizeObserver below already handles the chart following whatever the box resolves to.
+   */
+  height: number | string;
   className?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);

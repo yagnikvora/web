@@ -262,10 +262,10 @@ export default function TrendDayClient({ initial, source }: { initial: TrendBoar
   const asOf = istClock(data.asOf, true);
 
   return (
-    <main className="p-5 flex flex-col gap-5">
+    <main className="px-0 py-1 sm:p-5 flex flex-col gap-4 sm:gap-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">Trend Day</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Trend Day</h1>
           <p className="text-muted text-sm mt-1 max-w-3xl">
             Stocks going <strong className="text-[#c7d2dc]">one direction all session</strong>. Ranked by how
             one-sided the whole day has been — VWAP adherence, how many times price changed sides, path
@@ -309,13 +309,13 @@ export default function TrendDayClient({ initial, source }: { initial: TrendBoar
         }
         live
         right={
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {PHASE_TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-3 py-2 sm:py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
                   tab === t.key ? "bg-accent text-white" : "text-muted hover:bg-chip hover:text-white"
                 }`}
               >

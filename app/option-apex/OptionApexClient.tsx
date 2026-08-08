@@ -27,7 +27,7 @@ function Select({ label, value, onChange, options }: {
     <label className="relative">
       <span className="sr-only">{label}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="chip appearance-none pr-8 font-semibold cursor-pointer hover:border-accent/50 transition-colors">
+        className="chip appearance-none pr-8 max-w-full font-semibold cursor-pointer hover:border-accent/50 transition-colors">
         {options.map(([v, l]) => <option key={v} value={v}>{`${label}: ${l}`}</option>)}
       </select>
       <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted text-[10px]">▼</span>
@@ -110,10 +110,11 @@ export default function OptionApexClient({ initial }: { initial: ApexLoad }) {
     <div>
       {/* ------------------------------------------------------------ header --- */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
-        <h1 className="text-3xl font-extrabold tracking-tight">Options Apex</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Options Apex</h1>
         <SourceBadge source={d.source} />
         {loading && <span className="text-xs text-muted animate-pulse">updating…</span>}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        {/* Its own row on a phone: three selects beside a heading leaves each about 70px. */}
+        <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2">
           <Select label="Index" value={script} onChange={pickScript} options={SCRIPTS} />
           <Select label="Time" value={String(tf)} onChange={(v) => setTf(Number(v))}
             options={TIMEFRAMES.map((t) => [String(t), `${t}m`])} />
@@ -148,11 +149,11 @@ export default function OptionApexClient({ initial }: { initial: ApexLoad }) {
           }
           badge={open ? "live" : undefined}
           right={
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <span className="text-[11px] text-muted mr-1 hidden sm:inline">Chart Type:</span>
               {CHART_TYPES.map((t) => (
                 <button key={t} onClick={() => setChartType(t)}
-                  className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                  className={`px-2 py-1.5 sm:py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors ${
                     chartType === t ? "bg-accent text-white" : "bg-chip text-muted hover:text-white"}`}>
                   {CHART_TYPE_LABEL[t]}
                 </button>
@@ -161,7 +162,7 @@ export default function OptionApexClient({ initial }: { initial: ApexLoad }) {
           }
         >
           {chart.candles.length ? (
-            <EChart option={chartOpt} height={520} />
+            <EChart option={chartOpt} height="clamp(320px, 52vh, 520px)" />
           ) : (
             <p className="text-muted text-sm py-20 text-center">No candles for this session yet.</p>
           )}
@@ -362,7 +363,7 @@ function Mover({ mover }: { mover: NonNullable<ApexLoad["mover"]> }) {
 
   return (
     <div className="grid gap-4 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
-      <EChart option={moverOption(mover.stocks)} height={340} />
+      <EChart option={moverOption(mover.stocks)} height="clamp(280px, 40vh, 340px)" />
       <div>
         <p className="text-lg font-bold mb-3">
           {mover.index} is{" "}

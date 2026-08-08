@@ -76,7 +76,7 @@ export default function SectorScopeClient({ data: initial }: { data: SectorScope
     <div className="pb-10">
       {/* header */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5">
-        <h2 className="flex items-center text-[28px] font-extrabold leading-tight">
+        <h2 className="flex items-center text-2xl sm:text-[28px] font-extrabold leading-tight">
           Sector Scope
           <Bulb className="ml-2 w-[20px] h-[20px] text-amber-300/80" />
         </h2>
@@ -91,7 +91,9 @@ export default function SectorScopeClient({ data: initial }: { data: SectorScope
       <section className="rounded-[14px] border border-white/10 bg-white/[0.02] p-3">
         <div className="flex items-center justify-between px-1 pb-2">
           <h3 className="text-[15px] font-bold tracking-wide text-[#cfd3dc]">SECTOR MAP</h3>
-          <span className="text-[12px] text-[#8a8aa0]">
+          {/* The legend is a nice-to-have; on a phone it would take the heading's row and
+              wrap to three lines above a chart that is already short on height. */}
+          <span className="hidden md:block text-[12px] text-[#8a8aa0]">
             Tile size = size of move · colour = strength · click to open the sector
           </span>
         </div>

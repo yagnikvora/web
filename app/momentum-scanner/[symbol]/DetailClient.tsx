@@ -412,7 +412,7 @@ export default function DetailClient({ initial, source, symbol }: {
   const drift = Math.abs(recomputed - row.rawScore);
 
   return (
-    <main className="p-5">
+    <main className="px-0 py-1 sm:p-5">
       <Link href="/momentum-scanner" className="text-[13px] text-accent hover:underline">← Momentum Scanner</Link>
 
       {/* ---- headline ---- */}
@@ -420,7 +420,7 @@ export default function DetailClient({ initial, source, symbol }: {
         <SymbolAvatar symbol={row.symbol} className="w-[42px] h-[42px] text-[14px]" />
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-extrabold tracking-tight">{row.symbol}</h1>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{row.symbol}</h1>
             <a href={tvLink(row.symbol)} target="_blank" rel="noopener noreferrer" className="text-[12px] text-accent hover:underline">
               Chart ↗
             </a>

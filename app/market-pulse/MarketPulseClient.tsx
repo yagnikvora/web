@@ -140,12 +140,20 @@ const SectorCtx = createContext<{ ranked: SectorRank[]; memberOf: Map<string, Se
 });
 
 function Widget<T extends { Symbol: string }>({
-  title, desc, cols, rows, defaultDir = -1, initialSortCol, dirOf,
+  title, desc, cols, rows, defaultDir = -1, initialSortCol, dirOf, pin, pinWidth,
 }: {
   title: string; desc: string; cols: Col<T>[]; rows: T[];
   defaultDir?: 1 | -1; initialSortCol?: number;
   /** Present only on widgets where a row has a direction to filter on. */
   dirOf?: (r: T) => number;
+  /**
+   * Leading columns to keep on screen while the board is scrolled sideways. Every widget
+   * here opens with the symbol except Breakout Beacon, which leads with the BULL/BEAR pill
+   * and so needs two — see DataTable.
+   */
+  pin?: 0 | 1 | 2;
+  /** Width of that first column when two are pinned. See DataTable. */
+  pinWidth?: number;
 }) {
   const { ranked, memberOf } = useContext(SectorCtx);
   const [q, setQ] = useState("");
@@ -178,6 +186,8 @@ function Widget<T extends { Symbol: string }>({
         rowKey={(r, i) => r.Symbol + i}
         defaultDir={defaultDir}
         initialSort={initialSortCol}
+        pin={pin}
+        pinWidth={pinWidth}
         empty={sector === ALL_SECTORS ? "No rows found." : `Nothing in ${sectorLabel(sector)} right now.`}
       />
     </TableCard>
@@ -243,19 +253,22 @@ export default function MarketPulseClient({ data: initial, sectors: initialSecto
       className="min-h-screen"
       style={{ backgroundImage: "radial-gradient(900px 620px at 28% 42%, rgba(20,60,160,0.16), transparent 65%)" }}
     >
-      <div className="flex items-center gap-4 pb-[30px]">
-        <h2 className="text-[32px] font-extrabold leading-[44px] capitalize">Market Pulse</h2>
+      <div className="flex items-center flex-wrap gap-3 sm:gap-4 pb-5 sm:pb-[30px]">
+        <h2 className="text-2xl sm:text-[32px] font-extrabold leading-tight sm:leading-[44px] capitalize">Market Pulse</h2>
         <LiveClock at={updatedAt} open={open} />
       </div>
 
       <SectorCtx.Provider value={universe}>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
           <Widget
             title="BREAKOUT BEACON"
             desc="With BREAKOUT BEACON, unleash massive gains! Spot stocks surging with momentum as big players pile in."
             cols={bbCols}
             rows={data.breakout_beacon}
             initialSortCol={4}
+            // Column zero here is the BULL/BEAR pill, which is 58px plus the cell padding.
+            pin={2}
+            pinWidth={78}
             dirOf={(r) => (r.param_2 === "BULL" ? 1 : -1)}
           />
           <Widget

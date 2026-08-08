@@ -264,8 +264,8 @@ function MarketBar({ board }: { board: MomentumBoard }) {
   );
 
   return (
-    <section className="panel p-4 mb-4">
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+    <section className="panel p-3 sm:p-4 mb-4">
+      <div className="flex flex-wrap items-center gap-x-5 sm:gap-x-8 gap-y-3 sm:gap-y-4">
         <Stat
           label="Nifty 50"
           value={m.nifty ? `${fmt(m.nifty.level)} (${pctStr(m.nifty.changePct)})` : "—"}
@@ -337,7 +337,7 @@ function MarketBar({ board }: { board: MomentumBoard }) {
  */
 function LiveEntries({ rows, igniting, entrable }: { rows: MomentumRow[]; igniting: number; entrable: number }) {
   return (
-    <section className="panel p-4 mb-4">
+    <section className="panel p-3 sm:p-4 mb-4">
       <div className="flex items-baseline gap-3 mb-3 flex-wrap">
         <h2 className="text-[15px] font-bold">Entries live now</h2>
         <span className="text-[12px] text-muted">
@@ -416,13 +416,18 @@ function Segmented<T extends string>({ options, value, onChange, label }: {
   options: T[]; value: T; onChange: (v: T) => void; label: string;
 }) {
   return (
-    <div className="flex items-center gap-1" role="group" aria-label={label}>
+    // `flex-wrap` and `whitespace-nowrap` are load-bearing together. Without wrapping, six
+    // options in one row are wider than a phone, and because nothing here is a scroll
+    // container the overflow widens the whole DOCUMENT — which is what put a black gutter
+    // down the side of every page. Without nowrap the group fits by breaking "Entries only"
+    // and "Momentum Buy" across two lines each instead, which is not better.
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={label}>
       {options.map((o) => (
         <button
           key={o}
           type="button"
           onClick={() => onChange(o)}
-          className={`rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+          className={`rounded-lg px-2.5 py-2 sm:py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
             o === value ? "bg-accent text-white" : "text-muted hover:bg-chip hover:text-white"
           }`}
         >
@@ -653,9 +658,9 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
   ];
 
   return (
-    <main className="p-5">
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <h1 className="text-3xl font-extrabold tracking-tight">Momentum Scanner</h1>
+    <main className="px-0 py-1 sm:p-5">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-5 flex-wrap">
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Momentum Scanner</h1>
         <SourceBadge source={source} />
         {/* The timestamp is client-only. Formatting `Date.now()` during render gives the
             server one second and the browser another, which hydrates as a text mismatch —
@@ -687,7 +692,7 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
         live
         search={{ value: search, onChange: setSearch }}
       >
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-[15px] py-3">
+        <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-2 px-[10px] sm:px-[15px] py-3">
           <Segmented options={STATES} value={state} onChange={setState} label="Timing state" />
           <Segmented options={DIRECTIONS} value={dir} onChange={setDir} label="Direction" />
           <Segmented options={TRADES} value={trade} onChange={setTrade} label="Trade type" />
@@ -708,6 +713,10 @@ export default function MomentumClient({ initial, source }: { initial: MomentumB
           rowKey={(r) => r.symbol}
           height={720}
           initialSort={4}
+          // This board opens with the rank, so the symbol is the SECOND column. Pinning one
+          // would hold a number on screen while the name it belongs to scrolled away — and
+          // this board is wide enough to scroll on a desktop, not only on a phone.
+          pin={2}
           empty="No stock clears these filters right now."
         />
       </TableCard>

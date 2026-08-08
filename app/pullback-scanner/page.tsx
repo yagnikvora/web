@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { fetchData } from "@/lib/api";
 import type { PullbackBoard } from "@/lib/pullback";
 import PullbackClient from "./PullbackClient";
+import PullbackSkeleton from "./Skeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,7 @@ export const metadata = {
     "scored 0–100 with the stop, the targets and the option contract worked out.",
 };
 
-export default async function Page() {
+async function Board() {
   // The board carries its own warnings — a warming seed, a rate-limited endpoint, a timeframe with
   // too little history — and those are part of the page, not an error condition. The one case worth
   // rendering separately is a backend that answered nothing at all, because a scanner with no rows
@@ -47,4 +49,22 @@ export default async function Page() {
   }
 
   return <PullbackClient initial={board.data} source={board.source} />;
+}
+
+/**
+ * The page itself does no awaiting, and that is the point.
+ *
+ * An `async` page holds the entire RSC response until its fetch resolves: the router gets
+ * nothing to render, so a click on the nav sits on the old page for the length of the
+ * request plus the time to serialise ~800 KB of board. With the fetch moved behind a
+ * Suspense boundary the shell flushes on the first chunk, the skeleton paints, and the
+ * board streams in underneath it — which is also what makes the navigation feel immediate
+ * on a hard refresh, where `loading.tsx` alone would not help.
+ */
+export default function Page() {
+  return (
+    <Suspense fallback={<PullbackSkeleton />}>
+      <Board />
+    </Suspense>
+  );
 }

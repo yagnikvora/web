@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { loadApex, DEFAULT_SCRIPT, DEFAULT_TF } from "@/lib/apex";
 import OptionApexClient from "./OptionApexClient";
+import OptionApexSkeleton from "./Skeleton";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page() {
+async function Board() {
   try {
     const initial = await loadApex(DEFAULT_SCRIPT, DEFAULT_TF);
     return <OptionApexClient initial={initial} />;
@@ -25,4 +27,15 @@ export default async function Page() {
       </div>
     );
   }
+}
+
+// Non-async on purpose — see the note in ../pullback-scanner/page.tsx. This route waits on
+// the index candles AND the option chain before it can render anything, which makes it the
+// one most worth showing a shell for.
+export default function Page() {
+  return (
+    <Suspense fallback={<OptionApexSkeleton />}>
+      <Board />
+    </Suspense>
+  );
 }

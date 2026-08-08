@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { fetchData } from "@/lib/api";
+import { SkeletonDetail } from "@/components/skeleton";
 import { TIMEFRAMES, DEFAULT_CHART_TIMEFRAME, type PullbackDetail, type Timeframe } from "@/lib/pullback";
 import DetailClient from "./DetailClient";
 
@@ -13,16 +15,7 @@ export function generateMetadata({ params }: { params: { symbol: string } }) {
   };
 }
 
-export default async function Page({
-  params, searchParams,
-}: {
-  params: { symbol: string };
-  searchParams: { timeframe?: string };
-}) {
-  const symbol = decodeURIComponent(params.symbol).toUpperCase();
-  const wanted = Number(searchParams.timeframe);
-  const tf: Timeframe = TIMEFRAMES.includes(wanted as Timeframe) ? (wanted as Timeframe) : DEFAULT_CHART_TIMEFRAME;
-
+async function Detail({ symbol, tf }: { symbol: string; tf: Timeframe }) {
   const detail = await fetchData<PullbackDetail>(
     `/pullback/${encodeURIComponent(symbol)}?timeframe=${tf}`,
   ).catch((e: Error) => ({ data: null, source: undefined, error: e.message }) as const);
@@ -48,4 +41,25 @@ export default async function Page({
   }
 
   return <DetailClient initial={detail.data} source={detail.source} />;
+}
+
+// Non-async so the shell flushes before the per-symbol fetch — this route pulls candles for
+// the chart and is the slowest hop in the module. See ../page.tsx for the full reasoning.
+export default function Page({
+  params, searchParams,
+}: {
+  params: { symbol: string };
+  searchParams: { timeframe?: string };
+}) {
+  const symbol = decodeURIComponent(params.symbol).toUpperCase();
+  const wanted = Number(searchParams.timeframe);
+  const tf: Timeframe = TIMEFRAMES.includes(wanted as Timeframe) ? (wanted as Timeframe) : DEFAULT_CHART_TIMEFRAME;
+
+  return (
+    // Keyed on the symbol and timeframe: switching either has to re-suspend, otherwise React
+    // keeps the resolved subtree on screen and the old symbol's chart sits there looking live.
+    <Suspense key={`${symbol}:${tf}`} fallback={<SkeletonDetail back="the pullback scanner" />}>
+      <Detail symbol={symbol} tf={tf} />
+    </Suspense>
+  );
 }

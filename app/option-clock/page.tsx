@@ -1,11 +1,13 @@
+import { Suspense } from "react";
 import { loadClock } from "@/lib/optionclock";
 import OptionClockClient from "./OptionClockClient";
+import OptionClockSkeleton from "./Skeleton";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_SCRIPT = "NIFTY 50";
 
-export default async function Page() {
+async function Board() {
   try {
     const data = await loadClock(DEFAULT_SCRIPT);
     return <OptionClockClient initial={data} script={DEFAULT_SCRIPT} />;
@@ -26,4 +28,15 @@ export default async function Page() {
       </div>
     );
   }
+}
+
+// Non-async on purpose — see the note in ../pullback-scanner/page.tsx. It matters more here
+// than on the tables: the chain read is slow and the three charts are ECharts canvases that
+// paint nothing until their own chunk lands.
+export default function Page() {
+  return (
+    <Suspense fallback={<OptionClockSkeleton />}>
+      <Board />
+    </Suspense>
+  );
 }

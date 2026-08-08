@@ -24,7 +24,7 @@ function Breadth({ stocks }: { stocks: SectorStock[] }) {
         <div style={{ width: `${pctUp}%`, background: UP }} />
         <div style={{ width: `${100 - pctUp}%`, background: DOWN }} />
       </div>
-      <div className="flex items-center justify-between mt-[10px] mb-[14px] text-[13px] font-semibold">
+      <div className="flex items-center justify-between gap-2 mt-[10px] mb-[14px] text-[11.5px] sm:text-[13px] font-semibold">
         <span className="flex items-center gap-2" style={{ color: UP }}>
           <span className="w-[10px] h-[10px] rounded-full" style={{ background: UP }} />
           {up} stocks ({pctUp.toFixed(2)}% Up)
@@ -83,7 +83,7 @@ function SectorTable({ name, stocks, active }: { name: string; stocks: SectorSto
         active ? "!border-[#84b1ff]/70 ring-1 ring-[#84b1ff]/40" : ""
       }`}
     >
-      <div className="px-[15px] pt-[14px]">
+      <div className="px-[10px] sm:px-[15px] pt-[14px]">
         <Breadth stocks={stocks} />
       </div>
       {/* R.Factor descending is what the real widget opens on — heaviest relative volume

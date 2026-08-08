@@ -37,13 +37,16 @@ function Dropdown<T>({ label, value, options, render, onPick }: {
   useOutsideClose(open, ref, () => setOpen(false));
 
   return (
-    <div ref={ref} className="relative">
+    // Three of these sit in the header. At a fixed 180px they overflow a phone; letting
+    // them share the row and set their own floor keeps all three reachable without one
+    // pushing the others off screen.
+    <div ref={ref} className="relative flex-1 min-w-[136px] sm:flex-none">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 bg-[#1b1f27] border border-white/10 rounded-[10px] px-4 h-[46px] min-w-[180px] justify-between"
+        className="flex w-full items-center gap-2 bg-[#1b1f27] border border-white/10 rounded-[10px] px-3 sm:px-4 h-[46px] sm:min-w-[180px] justify-between"
       >
-        <span className="text-[15px] text-[#c9d1d9]">
+        <span className="text-[13.5px] sm:text-[15px] text-[#c9d1d9] truncate">
           {label}&nbsp;<span className="font-bold text-white">{render(value)}</span>
         </span>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={`shrink-0 text-[#8b98a9] transition-transform ${open ? "rotate-180" : ""}`}>
@@ -117,9 +120,9 @@ function PcrTrend({ rows, step }: { rows: PcrRow[]; step: number }) {
   }, [latest?.ts]);
 
   return (
-    <section className="panel px-5 py-4 mb-4">
+    <section className="panel px-3 sm:px-5 py-4 mb-4">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
-        <h2 className="text-[22px] font-bold">PCR Trend</h2>
+        <h2 className="text-[19px] sm:text-[22px] font-bold">PCR Trend</h2>
         <Bulb title="Put-call ratio through the session. Rising = puts building faster than calls (bullish); falling = the reverse." />
         <span className="text-[13px] text-muted">every {step / 60} min · 09:15–15:30</span>
         {latest && (
@@ -135,8 +138,11 @@ function PcrTrend({ rows, step }: { rows: PcrRow[]; step: number }) {
       {/* The one table that doesn't go through DataTable: a pending row spans four columns
           at once, and the newest row is scrolled to by ref. It borrows the shared classes
           so it still reads as the same table as everywhere else. */}
+      {/* Same treatment as DataTable: below md the five columns keep their own widths and
+          the box scrolls sideways, with Time pinned at any width so a row stays identified
+          whenever it does scroll. */}
       <div ref={scroller} className="max-h-[420px] overflow-auto">
-        <table className="w-full table-auto border-separate border-spacing-0">
+        <table className="tbl-pin w-full min-w-max md:min-w-0 table-auto border-separate border-spacing-0">
           <thead>
             <tr>
               {["Time", "PCR", "Change", "Bulls OI (PE)", "Bears OI (CE)"].map((h) => (
@@ -261,11 +267,13 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
 
   return (
     <div className="min-h-screen">
-      <div className="flex flex-wrap items-center gap-4 mb-4">
-        <h1 className="text-[32px] font-extrabold leading-[44px]">Option Clock</h1>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+        <h1 className="text-2xl sm:text-[32px] font-extrabold leading-tight sm:leading-[44px]">Option Clock</h1>
         <LiveBadge />
         <LiveClock at={updatedAt} open={open} />
-        <div className="ml-auto flex items-center gap-3">
+        {/* Full width on a phone so the three pills wrap onto their own row rather than
+            being squeezed in beside the heading. */}
+        <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
           <Dropdown
             label="Day:"
             value={sel.day}
@@ -303,7 +311,7 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
         </div>
       )}
 
-      <div className="panel p-5 grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="panel p-3 sm:p-5 grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card
           title="OI Clock"
           hint="How open interest moved across the selected window. Calls building above spot is resistance; puts building below it is support."
@@ -316,9 +324,14 @@ export default function OptionClockClient({ initial, script }: { initial: ClockL
           }
         >
           {rows.length ? (
-            <EChart option={clock} height={620} />
+            // The strike ladder is tall by nature. Fixed at 620 it is taller than the
+            // screen it is read on; clamped, it gives up height on a phone and keeps all
+            // of it on a desktop.
+            <EChart option={clock} height="clamp(360px, 62vh, 620px)" />
           ) : (
-            <div className="h-[620px] grid place-items-center text-muted text-sm">No OI recorded for this window yet.</div>
+            <div className="h-[360px] sm:h-[620px] grid place-items-center text-muted text-sm text-center px-4">
+              No OI recorded for this window yet.
+            </div>
           )}
           <p className="text-[12px] text-muted mt-1">
             {win.length > 1

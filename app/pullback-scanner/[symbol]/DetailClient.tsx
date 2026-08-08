@@ -396,10 +396,10 @@ export default function DetailClient({ initial, source }: { initial: PullbackDet
   );
 
   return (
-    <main className="p-5">
+    <main className="px-0 py-1 sm:p-5">
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <Link href="/pullback-scanner" className="text-[13px] text-accent hover:underline">← Scanner</Link>
-        <h1 className="text-3xl font-extrabold tracking-tight">{detail.symbol}</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{detail.symbol}</h1>
         {detail.name && <span className="text-[14px] text-muted">{detail.name}</span>}
         <SourceBadge source={source} />
         {row && (
@@ -532,13 +532,13 @@ export default function DetailClient({ initial, source }: { initial: PullbackDet
       <Panel
         title={`${TIMEFRAME_LABEL[detail.timeframe]} — ${detail.bars.length} bars`}
         right={
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {TIMEFRAMES.filter((t) => detail.frames[t]).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTf(t)}
-                className={`rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`rounded-lg px-2.5 py-2 sm:py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
                   t === detail.timeframe ? "bg-accent text-white" : "text-muted hover:bg-chip hover:text-white"
                 }`}
               >
@@ -549,7 +549,7 @@ export default function DetailClient({ initial, source }: { initial: PullbackDet
         }
         className="mb-4"
       >
-        <EChart option={option} height={520} />
+        <EChart option={option} height="clamp(320px, 52vh, 520px)" />
         <p className="mt-2 text-[11px] text-muted leading-relaxed">
           The shaded band is the pullback zone — the span of the 9 EMA, the 20 EMA and VWAP, widened by the ATR
           tolerance. It is drawn as a band and not as three lines because that is what the entry actually is: price

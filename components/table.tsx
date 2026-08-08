@@ -87,7 +87,7 @@ function SearchBox({ value, onChange, label }: {
   value: string; onChange: (v: string) => void; label: string;
 }) {
   return (
-    <div className="flex items-center bg-[#27272a] rounded-[12px] h-10 w-[230px] max-w-[42%] px-3 shrink-0">
+    <div className="flex items-center bg-[#27272a] rounded-[12px] h-10 w-full sm:w-[230px] sm:max-w-[42%] px-3 shrink-0">
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -126,12 +126,14 @@ export function TableCard({ id, title, desc, howTo, live, right, search, classNa
   return (
     <section
       id={id}
-      className={`rounded-[10px] border-[0.8px] border-white/30 shadow-[0_4px_6px_rgba(0,0,0,0.1)] bg-white/[0.02] px-[10px] pb-[10px] ${className}`}
+      className={`rounded-[10px] border-[0.8px] border-white/30 shadow-[0_4px_6px_rgba(0,0,0,0.1)] bg-white/[0.02] px-[6px] sm:px-[10px] pb-[10px] ${className}`}
     >
-      <div className="flex items-start justify-between gap-3 px-[15px] pt-[12px]">
+      {/* Stacked on a phone: the heading and a 230px search box do not both fit across
+          390px, and side-by-side they squeeze the title to two or three words. */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-start justify-between gap-2 sm:gap-3 px-[10px] sm:px-[15px] pt-[12px]">
         <div className="min-w-0">
           <div className="flex items-center">
-            <h4 className="text-[20px] font-bold leading-[25px] whitespace-nowrap">{title}</h4>
+            <h4 className="text-[17px] sm:text-[20px] font-bold leading-[22px] sm:leading-[25px]">{title}</h4>
             {desc && <Bulb className="w-[20px] h-[20px] ml-2 text-amber-300/80 cursor-help" title={desc} />}
           </div>
           {(howTo || live) && (
@@ -172,7 +174,7 @@ export const TH_CLASS =
 export const TD_CLASS = "px-[10px] py-[12px] align-middle";
 
 export function DataTable<T>({
-  cols, rows, rowKey, height = 500, defaultDir = -1, initialSort, empty = "No rows found.",
+  cols, rows, rowKey, height = 500, defaultDir = -1, initialSort, empty = "No rows found.", pin = 1, pinWidth = 44,
 }: {
   cols: Col<T>[];
   rows: T[];
@@ -184,6 +186,28 @@ export function DataTable<T>({
   /** Column index to open sorted on. */
   initialSort?: number;
   empty?: ReactNode;
+  /**
+   * How many LEADING columns stay put while the board is scrolled sideways — at any width,
+   * not just on a phone. A board with 19 columns and cells that carry their own minimum
+   * widths scrolls on a desktop too, and loses its symbol off the left edge just the same.
+   * On a table that fits, a sticky cell never moves and this costs nothing.
+   *
+   * A count rather than an index, because a middle column cannot be pinned on its own —
+   * whatever sits to its left has to come with it. One is right for every board whose
+   * first column is the symbol; the momentum board opens with a rank and needs two, or the
+   * pin holds a number and lets the name it belongs to scroll away. Zero switches it off.
+   *
+   * Only two are supported: a third would need real measurement rather than one declared
+   * width. See `pinWidth`.
+   */
+  pin?: 0 | 1 | 2;
+  /**
+   * Width in px to freeze column zero at when `pin` is 2 — it is what column one is offset
+   * by, so it is declared rather than measured. 44 suits a rank; a board leading with a
+   * BULL/BEAR pill needs more. Ignored unless `pin` is 2, and note that it applies at every
+   * width, so it sets that column's desktop width too.
+   */
+  pinWidth?: number;
 }) {
   const [sort, setSort] = useState<{ i: number; dir: 1 | -1 } | null>(
     initialSort == null ? null : { i: initialSort, dir: defaultDir },
@@ -211,14 +235,42 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="overflow-auto px-[15px] pb-[5px]" style={{ maxHeight: height }}>
-      <table className="w-full table-auto border-separate border-spacing-0">
+    /*
+      `maxHeight` is capped against the viewport as well as the caller's number. A 740px
+      table on a 667px phone means the page scrolls the card into view and the card then
+      scrolls the rows — two nested scrolls fighting the same thumb. Capping it at 78vh
+      leaves the header and the card's own heading on screen while the rows move.
+    */
+    <div
+      className="overflow-auto px-[10px] sm:px-[15px] pb-[5px]"
+      style={{ maxHeight: `min(${height}px, 78vh)` }}
+    >
+      {/*
+        `min-w-max` is what makes the sideways scroll work. Without it `w-full` asks a
+        19-column board to fit 390px, and the browser obliges by wrapping every heading and
+        every figure into a two-line column — technically visible, unreadable in practice.
+        With it the columns keep the width they were designed at and the box scrolls.
+
+        `md:min-w-0` hands the width back at 768px, so every layout that was tuned against
+        a desktop viewport lays out exactly as it did before — the wide boards still scroll
+        there, because their cells carry minimum widths of their own.
+
+        `tbl-pin` keeps the identity columns in place while the box scrolls, at every
+        width. That rule is in globals.css and is inert on a table that fits.
+      */}
+      <table
+        className={`${pin > 0 ? "tbl-pin " : ""}w-full min-w-max md:min-w-0 table-auto border-separate border-spacing-0`}
+        data-pins={pin || undefined}
+        style={pin === 2 ? ({ "--pin-0": `${pinWidth}px` } as React.CSSProperties) : undefined}
+      >
         <thead>
           <tr>
             {cols.map((c, i) => (
               <th
                 key={i}
                 onClick={() => click(i)}
+                data-pin={i < pin ? i : undefined}
+                data-pin-last={i === pin - 1 ? "" : undefined}
                 className={`${TH_CLASS} ${c.val ? "cursor-pointer hover:text-[#d4d4d8]" : ""}`}
               >
                 <span className="inline-flex items-center gap-1">
@@ -242,7 +294,14 @@ export function DataTable<T>({
           {shown.map((r, ri) => (
             <tr key={rowKey ? rowKey(r, ri) : ri} className="hover:bg-white/[0.03]">
               {cols.map((c, ci) => (
-                <td key={ci} className={TD_CLASS}>{c.render(r)}</td>
+                <td
+                  key={ci}
+                  data-pin={ci < pin ? ci : undefined}
+                  data-pin-last={ci === pin - 1 ? "" : undefined}
+                  className={TD_CLASS}
+                >
+                  {c.render(r)}
+                </td>
               ))}
             </tr>
           ))}

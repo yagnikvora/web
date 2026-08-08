@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { fetchData } from "@/lib/api";
+import { SkeletonDetail } from "@/components/skeleton";
 import type { MomentumDetail } from "@/lib/momentum";
 import DetailClient from "./DetailClient";
 
@@ -13,9 +15,7 @@ export function generateMetadata({ params }: { params: { symbol: string } }) {
   };
 }
 
-export default async function Page({ params }: { params: { symbol: string } }) {
-  const symbol = decodeURIComponent(params.symbol).toUpperCase();
-
+async function Detail({ symbol }: { symbol: string }) {
   const res = await fetchData<MomentumDetail>(`/momentum/${encodeURIComponent(symbol)}`).catch(
     (e: Error) => ({ data: null, source: undefined, error: e.message }) as const,
   );
@@ -41,4 +41,17 @@ export default async function Page({ params }: { params: { symbol: string } }) {
   }
 
   return <DetailClient initial={res.data} source={res.source} symbol={symbol} />;
+}
+
+// Non-async so the shell flushes before the per-symbol fetch. See ../page.tsx.
+export default function Page({ params }: { params: { symbol: string } }) {
+  const symbol = decodeURIComponent(params.symbol).toUpperCase();
+
+  return (
+    // Keyed on the symbol so moving between two stocks re-suspends rather than leaving the
+    // previous one's breakdown on screen while the new one loads.
+    <Suspense key={symbol} fallback={<SkeletonDetail back="the momentum scanner" />}>
+      <Detail symbol={symbol} />
+    </Suspense>
+  );
 }

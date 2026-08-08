@@ -180,9 +180,11 @@ function Card({ title, value, sub, cls = "", children }: {
   title: string; value?: React.ReactNode; sub?: React.ReactNode; cls?: string; children?: React.ReactNode;
 }) {
   return (
-    <section className="panel p-4 flex-1 min-w-[190px]">
+    // min-w-[150px] on a phone, so two cards fit a 390px row instead of one per row
+    // pushing the table five scrolls down the page.
+    <section className="panel p-3 sm:p-4 flex-1 min-w-[150px] sm:min-w-[190px]">
       <div className="text-[11px] uppercase tracking-wide text-muted mb-1.5">{title}</div>
-      {value !== undefined && <div className={`text-[26px] leading-[28px] font-extrabold tabular-nums ${cls}`}>{value}</div>}
+      {value !== undefined && <div className={`text-[22px] sm:text-[26px] leading-[26px] sm:leading-[28px] font-extrabold tabular-nums ${cls}`}>{value}</div>}
       {sub && <div className="text-[12px] text-muted mt-1">{sub}</div>}
       {children}
     </section>
@@ -265,8 +267,8 @@ function MarketBar({ board }: { board: PullbackBoard }) {
   );
 
   return (
-    <section className="panel p-4 mb-4">
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+    <section className="panel p-3 sm:p-4 mb-4">
+      <div className="flex flex-wrap items-center gap-x-5 sm:gap-x-8 gap-y-3 sm:gap-y-4">
         <Stat
           label="Nifty 50"
           value={m.nifty ? `${fmt(m.nifty.level)} (${pctStr(m.nifty.changePct)})` : "—"}
@@ -299,7 +301,7 @@ function MarketBar({ board }: { board: PullbackBoard }) {
           value={m.marketOpen ? `${m.minuteOfSession} / 375 min` : "Closed"}
           cls={m.marketOpen ? "text-bull" : "text-muted"}
         />
-        <div className="ml-auto text-right">
+        <div className="sm:ml-auto sm:text-right">
           <div className="text-[11px] uppercase tracking-wide text-muted">Scanned</div>
           <div className="text-[15px] font-bold tabular-nums">
             {board.scanned} / {board.universeSize}
@@ -322,13 +324,15 @@ function Segmented<T extends string | number>({ options, value, onChange, label,
   options: T[]; value: T; onChange: (v: T) => void; label: string; render?: (v: T) => string;
 }) {
   return (
-    <div className="flex items-center gap-1" role="group" aria-label={label}>
+    // See the note on the momentum board's copy of this: a non-wrapping row of pills is
+    // wider than a phone, and since nothing here scrolls the overflow widens the document.
+    <div className="flex flex-wrap items-center gap-1" role="group" aria-label={label}>
       {options.map((o) => (
         <button
           key={String(o)}
           type="button"
           onClick={() => onChange(o)}
-          className={`rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+          className={`rounded-lg px-2.5 py-2 sm:py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
             o === value ? "bg-accent text-white" : "text-muted hover:bg-chip hover:text-white"
           }`}
         >
@@ -624,9 +628,9 @@ export default function PullbackClient({ initial, source }: { initial: PullbackB
   ];
 
   return (
-    <main className="p-5">
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <h1 className="text-3xl font-extrabold tracking-tight">EMA Pullback Scanner</h1>
+    <main className="px-0 py-1 sm:p-5">
+      <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-5 flex-wrap">
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">EMA Pullback Scanner</h1>
         <SourceBadge source={source} />
         {/* Client-only. Formatting `Date.now()` during render gives the server one second and the
             browser another, which hydrates as a text mismatch. */}
@@ -657,7 +661,8 @@ export default function PullbackClient({ initial, source }: { initial: PullbackB
         live
         search={{ value: search, onChange: setSearch }}
       >
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-[15px] py-3">
+        {/* The filter strips scroll rather than wrap into five rows on a phone. */}
+        <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-2 px-[10px] sm:px-[15px] py-3">
           <Segmented options={["All", "Signals", "Watching"] as Row[]} value={rowKind} onChange={setRowKind} label="Row type" />
           <Segmented options={["All", "Index", "Stocks"] as Kind[]} value={kind} onChange={setKind} label="Instrument" />
           <Segmented options={["All", "Bullish", "Bearish"] as Dir[]} value={dir} onChange={setDir} label="Direction" />
@@ -676,7 +681,7 @@ export default function PullbackClient({ initial, source }: { initial: PullbackB
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-[15px] pb-3">
+        <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-2 px-[10px] sm:px-[15px] pb-3">
           <label className="flex items-center gap-2 text-[12.5px] text-muted">
             Sector
             <select

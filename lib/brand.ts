@@ -55,6 +55,20 @@ export const moduleLabel = (href: string) => MODULES[href]?.label ?? href;
 export const moduleGloss = (href: string) => MODULES[href]?.gloss ?? '';
 
 /**
+ * Which module a path belongs to, sub-pages included — /pullback-scanner/RELIANCE resolves
+ * to /pullback-scanner. Longest match wins, so a future module nested under another still
+ * resolves to itself. Null for anything outside the table, such as the home page.
+ *
+ * The nav needs this twice: to keep a module highlighted while the reader is on one of its
+ * detail pages, and to name the current module on a phone, where the links live behind a
+ * button and nothing else on screen says where you are.
+ */
+export const moduleForPath = (path: string): string | null =>
+  Object.keys(MODULES)
+    .filter((href) => path === href || path.startsWith(`${href}/`))
+    .sort((a, b) => b.length - a.length)[0] ?? null;
+
+/**
  * The signed-in account shown in the nav.
  *
  * A placeholder until real auth exists. It was a hardcoded personal handle, which is the

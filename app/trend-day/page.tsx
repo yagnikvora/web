@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { fetchData } from "@/lib/api";
 import type { TrendBoard } from "@/lib/momentum";
 import TrendDayClient from "./TrendDayClient";
+import TrendDaySkeleton from "./Skeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,7 @@ export const metadata = {
     "every fifteen seconds.",
 };
 
-export default async function Page() {
+async function Board() {
   const board = await fetchData<TrendBoard>("/momentum/trend").catch(
     (e: Error) => ({ data: null, source: undefined, error: e.message }) as const,
   );
@@ -42,4 +44,13 @@ export default async function Page() {
   }
 
   return <TrendDayClient initial={board.data} source={board.source} />;
+}
+
+// Non-async on purpose — see the note in ../pullback-scanner/page.tsx.
+export default function Page() {
+  return (
+    <Suspense fallback={<TrendDaySkeleton />}>
+      <Board />
+    </Suspense>
+  );
 }

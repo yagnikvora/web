@@ -4,10 +4,116 @@
 
 :root { color-scheme: dark; }
 
+html {
+  /* Stop iOS Safari inflating type when a phone is turned landscape. Every size in this
+     app is deliberate and several tables are tuned to fit a column count exactly. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   background: #000;
   color: #ecedee;
   font-family: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+  A backstop against sideways page scroll on phones.
+
+  One non-wrapping filter row was enough to make the whole DOCUMENT wider than the screen,
+  and the symptom does not point at the cause: the sticky header is sized to the viewport,
+  so it stops at the old width and everything past it renders as a black gutter down the
+  right-hand side. The page looks broken in a way that has nothing to do with the row that
+  broke it.
+
+  `clip` rather than `hidden` on purpose — `hidden` would turn the body into a scroll
+  container and the sticky nav would stop sticking to the viewport. Browsers without
+  `overflow: clip` ignore the declaration and simply behave as they do today.
+
+  This is a net, not a fix. Anything wide enough to hit it is still a bug worth finding;
+  the tables do their own scrolling inside `overflow-auto` and are unaffected.
+*/
+@media (max-width: 767px) {
+  body { overflow-x: clip; }
+}
+
+/*
+  THE ANCHOR COLUMNS, AT EVERY WIDTH.
+
+  These boards are 11 to 19 columns wide, and several carry cells with their own minimum
+  widths — so they scroll sideways on a 1400px desktop as readily as on a 390px phone.
+  Either way the failure is the same: once the reader scrolls out to reach ADX or the
+  option column, the symbol has left the screen and the row no longer says which stock it
+  is about. Pinning the identity column keeps the row named at every scroll position.
+
+  Nothing here costs anything on a table that fits. A sticky cell in a box with no
+  overflow never moves, so these rules are inert until there is something to scroll.
+
+  It is a COUNT of leading columns, not a single index, because you cannot pin a middle
+  column — everything to its left has to come with it or the pin would sit on top of them.
+  The momentum board and Breakout Beacon need two (a rank or a BULL/BEAR pill, then the
+  symbol); every other board needs one. When two are pinned, column zero is frozen to a
+  declared width so the second's offset is exact rather than measured — see `pinWidth`.
+
+  The backgrounds are opaque on purpose — the cells underneath scroll beneath these, and a
+  transparent pin would show them through.
+*/
+
+/* `:not([colspan])` leaves the empty-state row alone — it spans the whole table, so
+   pinning it would put a hairline down the middle of a sentence. */
+.tbl-pin thead th[data-pin],
+.tbl-pin tbody td[data-pin]:not([colspan]) {
+  position: sticky;
+  background: #10151f;
+  z-index: 6;
+}
+/* Above the body cells AND above its own row, since the header is already sticky-top. */
+.tbl-pin thead th[data-pin] {
+  background: #27272a;
+  z-index: 12;
+}
+
+/*
+  Row hover, restored on the pinned cells.
+
+  They need an opaque background to hide what scrolls under them, and an opaque background
+  is exactly what `hover:bg-white/[0.03]` on the row cannot paint over — so without this
+  the highlight stops dead at the pinned columns and the row reads as two pieces. The
+  overlay is the same 3% white the row uses, composited over the pin's own colour so the
+  two halves land on an identical result rather than a close one.
+*/
+.tbl-pin tbody tr:hover td[data-pin]:not([colspan]) {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.03)),
+    #10151f;
+}
+
+.tbl-pin [data-pin="0"] { left: 0; }
+.tbl-pin [data-pin="1"] { left: var(--pin-0, 44px); }
+
+/* Frozen width, so the offset above lands exactly on the second column's edge rather
+   than on a width nobody measured. `--pin-0` is set by DataTable's `pinWidth`, because
+   what column zero holds differs per board — a rank on the momentum scanner, a BULL/BEAR
+   pill on Breakout Beacon. */
+.tbl-pin[data-pins="2"] thead th[data-pin="0"],
+.tbl-pin[data-pins="2"] tbody td[data-pin="0"]:not([colspan]) {
+  width: var(--pin-0, 44px);
+  min-width: var(--pin-0, 44px);
+  max-width: var(--pin-0, 44px);
+  padding-left: 6px;
+  padding-right: 4px;
+}
+
+/* The edge goes on the LAST pinned column only — one shadow line for the group, not one
+   between the rank and the symbol that would read as a table border. */
+.tbl-pin thead th[data-pin-last]::after,
+.tbl-pin tbody td[data-pin-last]:not([colspan])::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -15,10 +121,44 @@ body {
 *::-webkit-scrollbar-thumb { background: #24303f; border-radius: 8px; }
 *::-webkit-scrollbar-thumb:hover { background: #33445a; }
 
+/* The page gutter. Written here rather than as Tailwind utilities because the safe-area
+   inset has to be inside a max(), which needs both halves in one declaration. */
+.page-shell {
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+}
+@media (min-width: 640px) {
+  .page-shell {
+    padding-left: max(1.25rem, env(safe-area-inset-left));
+    padding-right: max(1.25rem, env(safe-area-inset-right));
+  }
+}
+
 @layer components {
   .panel { @apply bg-panel border border-border rounded-2xl; }
   .chip { @apply bg-chip border border-border rounded-lg px-3 py-2 text-sm; }
   .badge-live { @apply text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400; }
+
+  /* Skeleton placeholders, used by every route's loading.tsx.
+     The sweep is a background-position animation over one gradient rather than a moving
+     child element: no extra DOM, nothing to lay out per frame, and it costs nothing while
+     the real board is being fetched and rendered on the same main thread.
+
+     IN THE COMPONENTS LAYER, WHICH IS NOT COSMETIC. Tailwind emits utilities after
+     components, so a `rounded-full` on a placeholder beats the 6px default here. Declared
+     as plain CSS further down the file it would win on source order instead, and every
+     avatar and pill placeholder in the app would quietly render as a 6px rounded box. */
+  .sk {
+    @apply block rounded-md;
+    background: linear-gradient(90deg, #151c28 25%, #212c3c 37%, #151c28 63%);
+    background-size: 400% 100%;
+    animation: sk-sweep 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes sk-sweep { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+@media (prefers-reduced-motion: reduce) {
+  .sk { animation: none; }
 }
 
 /* The index ticker. The track holds two identical copies of the list and slides exactly
