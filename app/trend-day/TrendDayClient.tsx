@@ -282,6 +282,71 @@ function columns(): Col<MomentumRow>[] {
 
 /* ------------------------------------------------------------------------- page --- */
 
+/**
+ * Why the list is empty, which is a different sentence at four different times of day.
+ *
+ * The single message this replaced explained the promotion gates — true, and the right answer
+ * at 11:00. Read at 00:05 it says "nothing can be called Forming before minute 30 of the
+ * session" about a session that is nine hours away, which describes the board as though it were
+ * failing to find something rather than waiting for the market to open. An empty list has to say
+ * WHICH kind of empty it is, or the honest one is indistinguishable from a broken one.
+ */
+function emptyState(data: TrendBoard) {
+  const minute = data.market.minuteOfSession;
+  const open = data.market.marketOpen;
+
+  if (minute <= 0 && !open)
+    return {
+      head: "The market is closed.",
+      body: (
+        <>
+          Trading opens at <span className="text-[#c7d2dc]">09:15 IST</span>. This board is measured
+          from the session as it happens, so it has nothing to rank until then — the first rows can
+          appear from 09:45, and nothing is Confirmed before 10:30. If the scanner is started later
+          in the day it rebuilds the part of the session it missed from the exchange&apos;s own
+          candles, so a late start does not cost you the morning.
+        </>
+      ),
+    };
+
+  if (minute < data.phase.formingFrom)
+    return {
+      head: `Too early — minute ${minute} of the session.`,
+      body: (
+        <>
+          Nothing can be called Forming before minute{" "}
+          <span className="text-[#c7d2dc]">{data.phase.formingFrom}</span> (09:45). Half an hour is
+          the least that can tell a trend from an opening drive, and an opening drive that reverses
+          at 09:50 is the most common shape on the tape.
+        </>
+      ),
+    };
+
+  if (minute >= 375)
+    return {
+      head: "No one-sided days today.",
+      body: (
+        <>
+          The session is over and nothing held a one-sided shape long enough to be called. That is a
+          real answer rather than a gap — on a rotational day the whole board legitimately reads
+          empty.
+        </>
+      ),
+    };
+
+  return {
+    head: "No one-sided days yet.",
+    body: (
+      <>
+        Nothing can be called Forming before minute {data.phase.formingFrom} of the session, or
+        Confirmed before minute {data.phase.confirmedFrom} — half an hour is the least that can tell
+        a trend from an opening drive, and an opening drive that reverses at 09:50 is the most common
+        shape on the tape. An empty list at 11:00 is a real answer: not every day has one.
+      </>
+    ),
+  };
+}
+
 const PHASE_TABS: Array<{ key: "all" | TrendPhase; label: string }> = [
   { key: "all", label: "All" },
   { key: "Confirmed", label: "Confirmed" },
@@ -299,6 +364,7 @@ export default function TrendDayClient({ initial, source }: { initial: TrendBoar
 
   const cols = useMemo(columns, []);
   const asOf = istClock(data.asOf, true);
+  const blank = emptyState(data);
 
   return (
     <main className="px-0 py-1 sm:p-5 flex flex-col gap-4 sm:gap-5">
@@ -371,13 +437,8 @@ export default function TrendDayClient({ initial, source }: { initial: TrendBoar
           height={620}
           empty={
             <div className="text-muted text-sm py-6 text-center max-w-xl mx-auto">
-              <p className="mb-1 font-semibold text-[#c7d2dc]">No one-sided days yet.</p>
-              <p>
-                Nothing can be called Forming before minute {data.phase.formingFrom} of the session, or
-                Confirmed before minute {data.phase.confirmedFrom} — half an hour is the least that can tell
-                a trend from an opening drive, and an opening drive that reverses at 09:50 is the most
-                common shape on the tape. An empty list at 11:00 is a real answer: not every day has one.
-              </p>
+              <p className="mb-1 font-semibold text-[#c7d2dc]">{blank.head}</p>
+              <p>{blank.body}</p>
             </div>
           }
         />
