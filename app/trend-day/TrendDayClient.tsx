@@ -14,9 +14,11 @@
 //
 // Three presentation decisions carry meaning rather than taste:
 //
-//   HELD is on the row and is not decoration. Two stocks at conviction 80 are not equally
-//   good if one has held for four hours and the other for twenty minutes, and the tenure is
-//   the only thing on the row that separates them.
+//   CONFIRMED AT is on the row and is not decoration. Two stocks at conviction 80 are not
+//   equally good if one was called at 10:30 and the other at 14:40, and the promotion time is
+//   the only thing on the row that separates them. It is an absolute clock reading rather than
+//   an elapsed one so it can be read straight onto a chart, and because it survives a fade:
+//   once a row demotes there is no other record of when the day was called.
 //
 //   FADED DAYS ARE IN THEIR OWN SECTION, below, never mixed into the ranking. A trend day
 //   that has stopped being one is the most dangerous row on the board — somebody is holding
@@ -33,7 +35,7 @@ import { istClock } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
 import {
-  actionClass, convictionBand, directionClass, heldStr, PHASE_HELP, phaseClass,
+  actionClass, convictionBand, directionClass, PHASE_HELP, phaseClass,
   stateClass, STATE_HELP,
   type MomentumRow, type TrendBoard, type TrendPhase,
 } from "@/lib/momentum";
@@ -144,6 +146,59 @@ function ShapeCell({ row }: { row: MomentumRow }) {
   );
 }
 
+/**
+ * The clock time the phase machine called it, which `Held` deliberately does not say.
+ *
+ * The two columns are not the same reading. `Held` is elapsed and keeps moving; this is fixed
+ * the moment the promotion happens, so it can be read straight onto a chart and compared
+ * across rows — "everything confirmed at 10:30" and "this one confirmed at 14:10" are
+ * different days, and the elapsed figures alone never show that.
+ *
+ * It also outlives the phase. A demoted row restarts `Held` from its demotion, so after a fade
+ * this is the only record left of when the day was called — which is precisely the row somebody
+ * is still holding.
+ */
+function ConfirmedAtCell({ row }: { row: MomentumRow }) {
+  const c = row.conviction;
+
+  if (!c?.confirmedAt)
+    return (
+      <span
+        className="text-muted text-[13px]"
+        title={
+          c?.phase === "Forming"
+            ? "Still forming — it has not been confirmed today. Confirmation needs the conviction to hold above the confirm score for 20 minutes, and cannot happen before minute 75 of the session."
+            : "This row has not reached Confirmed at any point today."
+        }
+      >
+        —
+      </span>
+    );
+
+  const current = c.phase === "Confirmed";
+  return (
+    <div className="flex flex-col gap-[2px] min-w-[86px]">
+      <span
+        className={`text-[13px] font-bold tabular-nums ${current ? "text-[#c7d2dc]" : "text-muted"}`}
+        title={
+          current
+            ? "When this was promoted to Confirmed today. It has held the phase continuously since."
+            : "When this was confirmed earlier today. It has since been demoted — the phase below is what it is now."
+        }
+      >
+        {istClock(c.confirmedAt)}
+      </span>
+      {/* A row can be confirmed, fade, and climb back to Forming — so this says which of the
+          two happened rather than assuming the demotion was terminal. */}
+      {!current && (
+        <span className="text-[11px] text-amber-300/70">
+          {c.phase === "Forming" ? "back to forming" : "then faded"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** What the timing layer says right now, and what it would buy. */
 function EntryCell({ row }: { row: MomentumRow }) {
   const s = row.signal;
@@ -214,30 +269,14 @@ function columns(): Col<MomentumRow>[] {
       render: (r) => <ConvictionCell row={r} />,
     },
     {
-      h: "Held",
-      val: (r) => r.conviction?.heldMin ?? -1,
-      render: (r) => (
-        <Num cls="text-[#c7d2dc]">
-          <span title="How long the current phase has held. Two stocks at the same conviction are not equally good if one has held it for four hours.">
-            {heldStr(r.conviction?.heldMin)}
-          </span>
-        </Num>
-      ),
+      h: "Confirmed at",
+      // Zero for a row that never confirmed, so sorting groups the un-confirmed together at
+      // one end rather than scattering them through the times.
+      val: (r) => r.conviction?.confirmedAt ?? 0,
+      render: (r) => <ConfirmedAtCell row={r} />,
     },
     { h: "Session shape", render: (r) => <ShapeCell row={r} /> },
     { h: "Entry now", val: (r) => r.signal?.entryQuality ?? -1, render: (r) => <EntryCell row={r} /> },
-    {
-      h: "Re-entries",
-      val: (r) => r.signal?.trendEntriesToday ?? 0,
-      render: (r) => (
-        <Num cls="text-muted">
-          <span title="Trend-day pullback entries that have fired on this stock today. A one-sided day typically offers three to five.">
-            {r.signal?.trendEntriesToday ?? 0}
-          </span>
-        </Num>
-      ),
-    },
-    { h: "Score", val: (r) => r.score, render: (r) => <Num cls="text-muted">{r.score.toFixed(0)}</Num> },
   ];
 }
 

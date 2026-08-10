@@ -55,6 +55,15 @@ export interface ConvictionSummary {
   direction: Direction;
   /** Minutes the current phase has held. The persistence that stops the list churning. */
   heldMin: number | null;
+  /**
+   * When the row was promoted to Confirmed today, epoch ms. Null if it never was.
+   *
+   * Kept as well as `heldMin` because the two answer different questions: one places the call
+   * on the session ("10:30"), the other says how long it has survived since. And a faded row
+   * restarts `heldMin` at its demotion, so this is the only surviving record of when the day
+   * was called.
+   */
+  confirmedAt: number | null;
   /** Highest conviction reached today, so a faded row still says what it once was. */
   peak: number;
   vwapAdherence: number | null;
