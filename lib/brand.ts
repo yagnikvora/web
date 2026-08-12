@@ -41,10 +41,6 @@ export const MODULES: Record<string, { label: string; gloss: string }> = {
     label: 'Trend Day',
     gloss: 'Stocks going one direction all session, ranked by conviction and held steady',
   },
-  '/pullback-scanner': {
-    label: 'EMA Pullback',
-    gloss: '9/20 EMA pullback continuation entries — trend, retracement, candle and volume confirmation',
-  },
   '/market-pulse': { label: 'Market Pulse', gloss: 'Live momentum, breakout and power scanners' },
   '/sector-scope': { label: 'Sector Scope', gloss: 'Sector strength heatmap' },
   '/option-clock': { label: 'Option Clock', gloss: 'Open-interest clock and PCR trend' },
@@ -55,8 +51,8 @@ export const moduleLabel = (href: string) => MODULES[href]?.label ?? href;
 export const moduleGloss = (href: string) => MODULES[href]?.gloss ?? '';
 
 /**
- * Which module a path belongs to, sub-pages included — /pullback-scanner/RELIANCE resolves
- * to /pullback-scanner. Longest match wins, so a future module nested under another still
+ * Which module a path belongs to, sub-pages included — /momentum-scanner/RELIANCE resolves
+ * to /momentum-scanner. Longest match wins, so a future module nested under another still
  * resolves to itself. Null for anything outside the table, such as the home page.
  *
  * The nav needs this twice: to keep a module highlighted while the reader is on one of its

@@ -29,7 +29,7 @@ async function Board() {
   }
 }
 
-// Non-async on purpose — see the note in ../pullback-scanner/page.tsx. This route waits on
+// Non-async on purpose — see the note in ../momentum-scanner/page.tsx. This route waits on
 // the index candles AND the option chain before it can render anything, which makes it the
 // one most worth showing a shell for.
 export default function Page() {

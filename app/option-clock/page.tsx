@@ -30,7 +30,7 @@ async function Board() {
   }
 }
 
-// Non-async on purpose — see the note in ../pullback-scanner/page.tsx. It matters more here
+// Non-async on purpose — see the note in ../momentum-scanner/page.tsx. It matters more here
 // than on the tables: the chain read is slow and the three charts are ECharts canvases that
 // paint nothing until their own chunk lands.
 export default function Page() {

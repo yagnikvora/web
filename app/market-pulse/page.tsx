@@ -21,7 +21,7 @@ async function Board() {
 
 // Non-async on purpose: the two fetches sit behind the Suspense boundary so the shell
 // flushes immediately and the skeleton paints while they are still in flight. See the
-// longer note in ../pullback-scanner/page.tsx.
+// longer note in ../momentum-scanner/page.tsx.
 export default function Page() {
   return (
     <Suspense fallback={<MarketPulseSkeleton />}>

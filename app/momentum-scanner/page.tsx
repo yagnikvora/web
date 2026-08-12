@@ -49,9 +49,20 @@ async function Board() {
   return <MomentumClient initial={board.data} source={board.source} />;
 }
 
-// Non-async on purpose: the fetch sits behind the Suspense boundary so the shell flushes
-// immediately and the skeleton paints while the board is still being fetched and
-// serialised. See the longer note in ../pullback-scanner/page.tsx.
+/**
+ * The page itself does no awaiting, and that is the point.
+ *
+ * An `async` page holds the entire RSC response until its fetch resolves: the router gets nothing
+ * to render, so a click on the nav sits on the old page for the length of the request plus the time
+ * to serialise ~800 KB of board. With the fetch moved behind a Suspense boundary the shell flushes
+ * on the first chunk, the skeleton paints, and the board streams in underneath it — which is also
+ * what makes the navigation feel immediate on a hard refresh, where `loading.tsx` alone would not
+ * help.
+ *
+ * Every board page in this app is built this way and the others point here for the reasoning. It
+ * used to live in the EMA Pullback Scanner's page, which was the first one to need it; this became
+ * its home when that scanner was removed.
+ */
 export default function Page() {
   return (
     <Suspense fallback={<MomentumSkeleton />}>

@@ -11,7 +11,7 @@ async function Board() {
   return <SectorScopeClient data={data} />;
 }
 
-// Non-async on purpose — see the note in ../pullback-scanner/page.tsx.
+// Non-async on purpose — see the note in ../momentum-scanner/page.tsx.
 export default function Page() {
   return (
     <Suspense fallback={<SectorScopeSkeleton />}>

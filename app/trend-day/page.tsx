@@ -46,7 +46,7 @@ async function Board() {
   return <TrendDayClient initial={board.data} source={board.source} />;
 }
 
-// Non-async on purpose — see the note in ../pullback-scanner/page.tsx.
+// Non-async on purpose — see the note in ../momentum-scanner/page.tsx.
 export default function Page() {
   return (
     <Suspense fallback={<TrendDaySkeleton />}>

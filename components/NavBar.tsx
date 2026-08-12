@@ -12,7 +12,7 @@ import { BRAND, VIEWER, moduleForPath, moduleGloss, moduleLabel } from "@/lib/br
 // The group labels went unused while the bar was one flat row. The phone menu uses them —
 // on a screen that can only show a list, "Stocks" and "Index" are what make it scannable.
 const GROUPS: { label: string; items: string[] }[] = [
-  { label: "Stocks", items: ["/momentum-scanner", "/trend-day", "/pullback-scanner", "/market-pulse", "/sector-scope"] },
+  { label: "Stocks", items: ["/momentum-scanner", "/trend-day", "/market-pulse", "/sector-scope"] },
   { label: "Index", items: ["/option-clock", "/option-apex"] },
 ];
 
