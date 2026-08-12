@@ -1,6 +1,12 @@
 "use client";
 
-// The backtest panel.
+// The backtest panel. NOT CURRENTLY MOUNTED.
+//
+// Taken off the scanner page because it was not being read, not because anything broke.
+// `POST /pullback/backtest` and the engine behind it are untouched and still exercise the live
+// services over history — see `api/src/pullback/backtest/backtest.engine.ts`, which explains why
+// replaying the real services matters more than the panel that drove them. Put it back by
+// importing it in `PullbackClient.tsx` and rendering `<Backtester />` — it takes no props.
 //
 // The backend replays the SAME services the live scanner runs — same indicators, same trend gates,
 // same pullback detector, same scorer, same stop and target maths, same config. That is the only

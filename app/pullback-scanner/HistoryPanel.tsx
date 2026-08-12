@@ -1,6 +1,12 @@
 "use client";
 
-// Signal history — what fired, and what happened to it.
+// Signal history — what fired, and what happened to it. NOT CURRENTLY MOUNTED.
+//
+// Taken off the scanner page because it was not being read, not because anything broke. Nothing
+// underneath it changed: `/api/pullback/history` still answers, the signal log is still written on
+// every scan, outcomes are still settled on the live price, and the board's own "fired today" and
+// win-rate counters still read from it. Only this panel is gone. Put it back by importing it in
+// `PullbackClient.tsx` and rendering `<HistoryPanel />` — it takes no props.
 //
 // This is the panel that makes the rest of the board accountable. Every other view here is a
 // forecast; this one is the record, and it is deliberately not filtered to the flattering subset:

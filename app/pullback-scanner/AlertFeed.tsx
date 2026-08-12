@@ -1,6 +1,6 @@
 "use client";
 
-// The alert strip.
+// The alert strip. NOT CURRENTLY MOUNTED — see the note at the end of this comment.
 //
 // Polled with `?since=<the newest event already held>`, which is deliberately subscription-free:
 // the backend ring is bounded and in-process, so a client that has been away for ten minutes asks
@@ -15,6 +15,15 @@
 // The most useful event is `freshPullback`, and it is the earliest: it fires when price reaches the
 // band, before the confirmation candle, which is the only point at which there is time to look at
 // the chart before the entry is gone.
+//
+// WHY IT IS NOT ON THE PAGE. The EMA pullback scanner no longer raises alerts — `runScan` stopped
+// calling the alert engine (`api/src/pullback/engine/scanner.engine.ts`, the "log, settle" section
+// says why). `/api/pullback/alerts` still answers and the backend feed still exists, so this
+// component works exactly as written; it would just render its empty state forever, and a strip
+// that can never fill reads as a broken feed rather than a quiet one.
+//
+// It is kept rather than deleted because putting it back is one line — `<AlertFeed />` in
+// `PullbackClient.tsx`, under `<Cards />` — for whenever something feeds that endpoint again.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";

@@ -27,9 +27,16 @@ import { useLiveData } from "@/lib/live";
 import { fmt, istClock } from "@/lib/format";
 import { DataTable, Num, PctChip, SymbolCell, TableCard, type Col } from "@/components/table";
 import { SourceBadge } from "@/components/ui";
-import AlertFeed from "./AlertFeed";
-import Backtester from "./Backtester";
-import HistoryPanel from "./HistoryPanel";
+// THREE PANELS THAT USED TO BE ON THIS PAGE ARE NO LONGER MOUNTED. Each still works and each
+// still has its endpoint behind it — they were taken off the page because they were not being
+// read, not because they broke. Remounting any of them is one line, and each file's header says
+// where it went and what it needs.
+//
+//   AlertFeed.tsx    the alert strip — this scanner no longer raises alerts, so it could only
+//                    ever render "nothing has fired yet".
+//   HistoryPanel.tsx the day's signal log with outcomes. The log itself is still written and
+//                    still feeds the board's counters; only the panel is gone.
+//   Backtester.tsx   the on-demand backtest form.
 import {
   ageStr, atrStr, bandColours, bestOf, confidenceOf, ENTRY_KIND_HELP,
   liquidityClass, moneynessClass, PATTERN_LABEL, PHASE_HELP, PHASE_SHORT, phaseClass, pctStr,
@@ -642,7 +649,6 @@ export default function PullbackClient({ initial, source }: { initial: PullbackB
 
       <MarketBar board={board} />
       <Cards board={board} />
-      <AlertFeed />
 
       {board.warnings.length > 0 && (
         <div className="panel p-3.5 mb-4 border-amber-800/50">
@@ -734,11 +740,6 @@ export default function PullbackClient({ initial, source }: { initial: PullbackB
           }
         />
       </TableCard>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
-        <HistoryPanel />
-        <Backtester />
-      </div>
 
       <p className="mt-4 text-[11.5px] text-muted max-w-4xl leading-relaxed">
         This scanner does <strong className="text-[#c7d2dc]">not</strong> signal on EMA crossovers. A cross is a state
