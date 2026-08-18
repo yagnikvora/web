@@ -176,6 +176,7 @@ function ConfirmedAtCell({ row }: { row: MomentumRow }) {
     );
 
   const current = c.phase === "Confirmed";
+  const at = c.convictionAtConfirm;
   return (
     <div className="flex flex-col gap-[2px] min-w-[86px]">
       <span
@@ -188,6 +189,19 @@ function ConfirmedAtCell({ row }: { row: MomentumRow }) {
       >
         {istClock(c.confirmedAt)}
       </span>
+      {/* The conviction AT that moment, which is the only version of the score anyone could
+          have acted on. `Peak` elsewhere in the row is the best it ever read, and is normally
+          reached long after the call — so the pair is what separates an early call that was
+          vindicated from one that was marginal the whole way. Null for a confirmation carried
+          over from before this was recorded, which is why it renders conditionally. */}
+      {at !== null && at !== undefined && (
+        <span
+          className="text-[11px] tabular-nums text-muted"
+          title={`Conviction was ${at.toFixed(1)} when this was confirmed. The Peak column is the highest it reached today.`}
+        >
+          at <span className="text-amber-300/80 font-semibold">{at.toFixed(0)}</span> conviction
+        </span>
+      )}
       {/* A row can be confirmed, fade, and climb back to Forming — so this says which of the
           two happened rather than assuming the demotion was terminal. */}
       {!current && (

@@ -64,6 +64,14 @@ export interface ConvictionSummary {
    * was called.
    */
   confirmedAt: number | null;
+  /**
+   * The conviction score at that instant — how strong the call was when it was made.
+   *
+   * Null when the row never confirmed, and also null for a confirmation carried over from a
+   * session recorded before this was tracked, so the cell renders it conditionally rather than
+   * showing a confident zero.
+   */
+  convictionAtConfirm: number | null;
   /** Highest conviction reached today, so a faded row still says what it once was. */
   peak: number;
   vwapAdherence: number | null;
