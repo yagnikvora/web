@@ -14,6 +14,7 @@ import { BRAND, VIEWER, moduleForPath, moduleGloss, moduleLabel } from "@/lib/br
 const GROUPS: { label: string; items: string[] }[] = [
   { label: "Stocks", items: ["/momentum-scanner", "/trend-day", "/market-pulse", "/sector-scope"] },
   { label: "Index", items: ["/option-clock", "/option-apex"] },
+  { label: "Record", items: ["/trade-journal"] },
 ];
 
 const ALL = GROUPS.flatMap((g) => g.items);

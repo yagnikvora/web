@@ -45,6 +45,10 @@ export const MODULES: Record<string, { label: string; gloss: string }> = {
   '/sector-scope': { label: 'Sector Scope', gloss: 'Sector strength heatmap' },
   '/option-clock': { label: 'Option Clock', gloss: 'Open-interest clock and PCR trend' },
   '/option-apex': { label: 'Option Apex', gloss: 'Index chart, money flux and sentiment dials' },
+  '/trade-journal': {
+    label: 'Trade Journal',
+    gloss: 'Every alert as a position — what it cost, what it exited at, what it made after charges',
+  },
 };
 
 export const moduleLabel = (href: string) => MODULES[href]?.label ?? href;
