@@ -3,6 +3,8 @@
 // Hand-written rather than generated, like the rest of lib/: the API is one repo away and a
 // codegen step for six interfaces is more machinery than it saves.
 
+import { clock12 } from "./format";
+
 export type JournalChannel = "displacement" | "trend-day" | "ignition";
 
 export const CHANNEL_LABEL: Record<JournalChannel, string> = {
@@ -50,6 +52,10 @@ export interface JournalTrade {
   mark: { at: number; premium: number; pct: number } | null;
   mfePct: number | null;
   maePct: number | null;
+  /** Minute of session each excursion was set. Null/absent when it never happened, or on rows
+   *  written before the field existed — render "—", never 09:15. */
+  mfeMinute?: number | null;
+  maeMinute?: number | null;
   spreadPctAtEntry: number | null;
   amountUsed: number | null;
   grossPnl: number | null;
@@ -164,11 +170,16 @@ export function pct(n: number | null | undefined, dp = 1, sign = true): string {
   return `${sign && v >= 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(dp)}%`;
 }
 
-/** Minute of session back to a clock face. 0 is 09:15. */
+/**
+ * Minute of session back to a clock face. 0 is 09:15 AM.
+ *
+ * Rendered through `clock12` rather than assembled here, so the journal reads the same way as
+ * every other clock on the platform — this was the one page still on a 24-hour face.
+ */
 export function sessionClock(minute: number | null | undefined): string {
   if (minute === null || minute === undefined || !Number.isFinite(minute)) return "—";
   const t = 9 * 60 + 15 + minute;
-  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+  return clock12(Math.floor(t / 60), t % 60);
 }
 
 export const EXIT_LABEL: Record<ExitReason, string> = {

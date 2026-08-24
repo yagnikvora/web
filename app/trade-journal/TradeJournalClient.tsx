@@ -428,7 +428,7 @@ function TradeTable({ day, trades, totals, onEdit }: {
       h: "Bought",
       val: (r) => r.entry.minute,
       render: (r) => (
-        <div className="min-w-[92px] tabular-nums">
+        <div className="min-w-[104px] tabular-nums">
           <div>{prem(r.entry.premium)}</div>
           <div className="text-[11px] text-muted">
             {sessionClock(r.entry.minute)}
@@ -443,14 +443,14 @@ function TradeTable({ day, trades, totals, onEdit }: {
       render: (r) => {
         if (!r.exit) {
           return (
-            <div className="min-w-[92px] tabular-nums">
+            <div className="min-w-[104px] tabular-nums">
               <div className={sign(r.mark?.pct)}>{r.mark ? prem(r.mark.premium) : "—"}</div>
               <div className="text-[11px] text-accent">open · mark</div>
             </div>
           );
         }
         return (
-          <div className="min-w-[92px] tabular-nums">
+          <div className="min-w-[104px] tabular-nums">
             <div>{r.exit.reason === "untracked" ? "—" : prem(r.exit.premium)}</div>
             <div className="text-[11px] text-muted">
               {r.exit.reason === "untracked" ? "—" : sessionClock(r.exit.minute)}
@@ -502,10 +502,21 @@ function TradeTable({ day, trades, totals, onEdit }: {
       h: "Best / worst it saw",
       val: (r) => r.mfePct ?? 0,
       render: (r) => (
-        <div className="min-w-[92px] tabular-nums text-[11.5px]">
-          <span className="text-bull">{pct(r.mfePct)}</span>
-          <span className="text-muted mx-1">/</span>
-          <span className="text-bear">{pct(r.maePct)}</span>
+        <div className="min-w-[132px] tabular-nums text-[11.5px]">
+          <div>
+            <span className="text-bull">{pct(r.mfePct)}</span>
+            <span className="text-muted mx-1">/</span>
+            <span className="text-bear">{pct(r.maePct)}</span>
+          </div>
+          {/* The clock times, when the row carries them. A dash beats a wrong minute: an
+              excursion of 0 never happened, so it has no moment to name. */}
+          {(r.mfeMinute != null || r.maeMinute != null) && (
+            <div className="text-[10.5px] text-muted">
+              {sessionClock(r.mfeMinute)}
+              <span className="mx-1">/</span>
+              {sessionClock(r.maeMinute)}
+            </div>
+          )}
         </div>
       ),
     },

@@ -34,11 +34,23 @@ const IST_OFFSET_MS = 330 * 60_000;
  */
 export function istClock(ms: number, withSeconds = false): string {
   const d = new Date(ms + IST_OFFSET_MS);
-  const h24 = d.getUTCHours();
-  const hh = String(h24 % 12 || 12).padStart(2, "0");
-  const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  const ss = withSeconds ? `:${String(d.getUTCSeconds()).padStart(2, "0")}` : "";
-  return `${hh}:${mm}${ss} ${h24 < 12 ? "AM" : "PM"}`;
+  return clock12(d.getUTCHours(), d.getUTCMinutes(), withSeconds ? d.getUTCSeconds() : undefined);
+}
+
+/**
+ * An hour/minute pair on a 24-hour clock, rendered the platform's way — "09:15 AM", "03:18 PM".
+ *
+ * Split out of `istClock` so that readings which have no epoch to hand render through exactly the
+ * same assembly: the trade journal counts MINUTES FROM THE OPEN, and building a second formatter
+ * for it is how this file ended up with seven of them last time. The manual assembly, rather than
+ * `toLocaleTimeString`, is deliberate for the hydration reasons documented above.
+ */
+export function clock12(h24: number, minute: number, seconds?: number): string {
+  const h = ((h24 % 24) + 24) % 24;
+  const hh = String(h % 12 || 12).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  const ss = seconds === undefined ? "" : `:${String(seconds).padStart(2, "0")}`;
+  return `${hh}:${mm}${ss} ${h < 12 ? "AM" : "PM"}`;
 }
 
 /** The same reading from an epoch in SECONDS, which is what the option feeds carry. */
