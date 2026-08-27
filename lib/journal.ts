@@ -56,6 +56,9 @@ export interface JournalTrade {
    *  written before the field existed — render "—", never 09:15. */
   mfeMinute?: number | null;
   maeMinute?: number | null;
+  /** Session minute the live marking of this row began. Null means the excursions cover the
+   *  whole trade — see the API's `markedFrom`. */
+  markedFrom?: number | null;
   spreadPctAtEntry: number | null;
   amountUsed: number | null;
   grossPnl: number | null;
@@ -95,6 +98,117 @@ export interface JournalDay {
   day: string;
   trades: JournalTrade[];
   totals: JournalTotals;
+}
+
+/* ------------------------------------------------------------------------ live P&L --- */
+
+/** What an open position is worth at its current mark. */
+export interface JournalLive {
+  premium: number;
+  /** Move on the premium, the same number `mark.pct` carries. */
+  pct: number;
+  gross: number;
+  charges: number;
+  net: number;
+  netPct: number | null;
+  /** When the mark was taken. A stale one is worse than none, so the age is shown. */
+  at: number;
+}
+
+/**
+ * The running P&L of a position that has not closed.
+ *
+ * Derived here rather than stored on the row, and deliberately never written into `grossPnl`
+ * or `netPnl`: those fields mean "what this trade actually made", and a running mark in them
+ * would make an open day and a settled one impossible to tell apart. The API keeps the same
+ * separation — `price()` only fills them on an exit.
+ *
+ * Charges are the whole round trip, the same fee a real exit books. A position closed at this
+ * mark would pay it, so a net that leaves it out is not a net.
+ */
+export function liveOf(t: JournalTrade, chargePerLot: number): JournalLive | null {
+  if (t.status !== "open" || t.exit || !t.mark || !t.contract) return null;
+  const size = t.contract.lotSize * t.lots;
+  if (!(size > 0)) return null;
+  const gross = (t.mark.premium - t.entry.premium) * size;
+  const charges = chargePerLot * t.lots;
+  const net = gross - charges;
+  const used = t.entry.premium * size;
+  return {
+    premium: t.mark.premium,
+    pct: t.mark.pct,
+    gross: +gross.toFixed(2),
+    charges: +charges.toFixed(2),
+    net: +net.toFixed(2),
+    netPct: used > 0 ? +(net / used).toFixed(4) : null,
+    at: t.mark.at,
+  };
+}
+
+export interface JournalLiveTotals {
+  /** Positions still open. */
+  open: number;
+  /** How many of them the feed has actually put a price on. The gap is the honest part: a
+   *  disconnected feed shows `0 of 9` rather than a confident ₹0. */
+  marked: number;
+  gross: number;
+  charges: number;
+  net: number;
+  used: number;
+  netPct: number | null;
+  /** Newest mark in the set, or null when nothing is priced. */
+  at: number | null;
+}
+
+/** The open book, added up. */
+export function liveTotals(days: JournalDay[], chargePerLot: number): JournalLiveTotals {
+  let open = 0, marked = 0, gross = 0, charges = 0, net = 0, used = 0, at = 0;
+  for (const d of days) {
+    for (const t of d.trades) {
+      if (t.status !== "open" || t.exit) continue;
+      open++;
+      const l = liveOf(t, chargePerLot);
+      if (!l) continue;
+      marked++;
+      gross += l.gross;
+      charges += l.charges;
+      net += l.net;
+      used += t.amountUsed ?? 0;
+      at = Math.max(at, l.at);
+    }
+  }
+  return {
+    open, marked,
+    gross: +gross.toFixed(2),
+    charges: +charges.toFixed(2),
+    net: +net.toFixed(2),
+    used: +used.toFixed(2),
+    netPct: used > 0 ? +(net / used).toFixed(4) : null,
+    at: at || null,
+  };
+}
+
+/**
+ * From what minute this row's best/worst is actually known, or null when it covers the trade.
+ *
+ * The excursions are accumulated from live marks, so a row first marked long after entry has a
+ * blind window at the front of it and its "worst it saw" is only the worst of what was watched.
+ * A minute or two of slack because the first mark lands on the tick after the entry is not a
+ * gap worth captioning.
+ */
+export function excursionFrom(t: JournalTrade): number | null {
+  const from = t.markedFrom;
+  if (from === null || from === undefined) return null;
+  return from > t.entry.minute + 2 ? from : null;
+}
+
+/** "12s ago", "4m ago" — how old a mark is, which is the only way to spot a dead feed. */
+export function ago(at: number | null, nowMs: number): string {
+  if (at === null || !Number.isFinite(at)) return "—";
+  const s = Math.max(0, Math.round((nowMs - at) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`;
 }
 
 /** Where the record lives, and whether the far half of it is answering. */

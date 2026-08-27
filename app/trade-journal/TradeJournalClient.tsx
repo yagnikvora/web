@@ -2,20 +2,26 @@
 
 // The trade journal, read at night.
 //
-// The whole point of this page is that nothing on it needs watching. It opens on today, closed
-// and settled, and every control moves the date rather than the refresh. There is no polling: a
-// settled day cannot change, and a page that re-fetches a finished record every minute is just
-// asking the API to confirm it again.
+// The whole point of this page is that a finished day needs no watching. It opens on today, and
+// every control moves the date rather than the refresh — a settled day cannot change, and a page
+// that re-fetches a finished record every minute is just asking the API to confirm it again.
 //
-// The one thing that DOES change is an open position during market hours, so the running mark is
-// shown where it exists and labelled as a mark rather than as an exit.
+// The one thing that DOES change is an open position during market hours. Those rows carry a
+// running mark, so the table prices them live — gross, charges and net at what the position
+// would fetch right now — and the page re-fetches on a timer while any of them are open.
+//
+// The polling is narrow on purpose. It runs only when the range on screen includes today AND
+// something in it is still open AND the tab is visible; the moment the last position closes it
+// stops on its own. A settled day cannot change, and re-asking for one is pure noise.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel } from "@/components/ui";
 import { Col, DataTable, TableCard } from "@/components/table";
 import {
-  CHANNEL_LABEL, EXIT_LABEL, inr, istToday, JournalSyncProbe, JournalTrade, JournalView, pct,
-  plural, prem, RangeMode, rangeFor, sessionClock, shiftDay, syncLabel, type JournalChannel,
+  ago, CHANNEL_LABEL, EXIT_LABEL, excursionFrom, inr, istToday, JournalSyncProbe, JournalTrade,
+  JournalView,
+  liveOf, liveTotals, pct, plural, prem, RangeMode, rangeFor, sessionClock, shiftDay, syncLabel,
+  type JournalChannel,
 } from "@/lib/journal";
 
 const CHANNELS: Array<JournalChannel | "all"> = ["all", "displacement", "trend-day", "ignition"];
@@ -24,6 +30,15 @@ const MODES: Array<{ k: RangeMode; label: string }> = [
   { k: "week", label: "7 days" },
   { k: "month", label: "Month to date" },
   { k: "custom", label: "Custom" },
+];
+
+// How often to re-ask, in seconds. 0 is off — kept as a real choice because the page is also
+// read at night, when a timer would only spin.
+const REFRESH: Array<{ s: number; label: string }> = [
+  { s: 0, label: "Off" },
+  { s: 15, label: "15s" },
+  { s: 30, label: "30s" },
+  { s: 60, label: "1m" },
 ];
 
 const sign = (n: number | null | undefined) =>
@@ -43,8 +58,19 @@ export default function TradeJournalClient({
   const [settling, setSettling] = useState(false);
   const [settleNote, setSettleNote] = useState<string | null>(null);
 
+  const [autoSec, setAutoSec] = useState(30);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(0);
+
   const unsettled = useMemo(
     () => view.days.reduce((n, d) => n + d.trades.filter((t) => !t.settled).length, 0),
+    [view],
+  );
+
+  // The open book at its current marks. Recomputed from `view` rather than tracked separately, so
+  // there is exactly one copy of "what is open right now" and it cannot drift from the table.
+  const live = useMemo(
+    () => liveTotals(view.days, view.config.chargePerLot),
     [view],
   );
 
@@ -60,6 +86,7 @@ export default function TradeJournalClient({
       const j = await res.json();
       if (!res.ok || !j?.data) throw new Error(j?.error ?? `journal API returned ${res.status}`);
       setView(j.data as JournalView);
+      setLoadedAt(Date.now());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -101,6 +128,36 @@ export default function TradeJournalClient({
   const today = istToday();
   const t = view.totals;
 
+  /*
+   * The refresh loop.
+   *
+   * Three conditions, all of which have to hold: the timer is on, the range on screen reaches
+   * today, and something in it is still open. Anything else is a finished record, and the page
+   * stops asking about it without being told to.
+   */
+  const polling = autoSec > 0 && live.open > 0 && to >= today;
+
+  useEffect(() => {
+    if (!polling) return;
+    const id = setInterval(() => {
+      // A tab in the background is a tab nobody is reading. Skipping it keeps a journal left
+      // open overnight from spending a request every thirty seconds until morning.
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void load();
+    }, autoSec * 1000);
+    return () => clearInterval(id);
+  }, [polling, autoSec, load]);
+
+  // The clock behind "12s ago". Only ticks while polling, and starts at 0 so the server and the
+  // browser render the same first frame — a live timestamp in the initial HTML is a hydration
+  // mismatch waiting to happen.
+  useEffect(() => {
+    if (!polling) { setNowMs(0); return; }
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [polling]);
+
   return (
     <main className="p-5 space-y-4">
       <header className="flex flex-wrap items-end gap-3">
@@ -118,6 +175,12 @@ export default function TradeJournalClient({
           {busy && <span className="text-accent">loading…</span>}
           {!view.config.enabled && (
             <span className="text-bear">journal is off — set JOURNAL=on in api/.env</span>
+          )}
+          {polling && nowMs > 0 && (
+            <span title={`re-asking every ${autoSec}s while a position is open`}>
+              <span className="text-bull">●</span>{" "}
+              {loadedAt === null ? "live" : `updated ${ago(loadedAt, nowMs)}`}
+            </span>
           )}
           <StoreBadge sync={view.sync} />
         </div>
@@ -172,6 +235,28 @@ export default function TradeJournalClient({
                 aria-label="range start"
               />
             )}
+          </div>
+
+          {/* The refresh cadence. Sits with the range controls because that is what it belongs
+              to — how often to re-ask is a property of the window being looked at, and it has
+              no effect at all on a window that cannot change. */}
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-muted mr-1">Live</span>
+            {REFRESH.map((r) => (
+              <button
+                key={r.s}
+                onClick={() => setAutoSec(r.s)}
+                className={`text-[12px] px-2 py-1.5 rounded-lg border ${
+                  autoSec === r.s ? "bg-accent text-white border-accent" : "border-border text-muted hover:bg-chip"
+                }`}
+              >{r.label}</button>
+            ))}
+            <button
+              onClick={() => void load()}
+              disabled={busy}
+              className="text-[12px] px-2.5 py-1.5 rounded-lg border border-border text-muted hover:bg-chip hover:text-white disabled:opacity-40 ml-1"
+              title="Re-ask now"
+            >↻</button>
           </div>
 
           {/* The channel filter. This is the comparison the journal exists to make — the three
@@ -229,8 +314,27 @@ export default function TradeJournalClient({
         </Panel>
       )}
 
+      {/* A live view that is not actually live is the one failure worth shouting about: the rows
+          look merely uneventful when in fact nothing is being priced. Says so rather than
+          leaving a column of dashes to be interpreted. */}
+      {live.open > 0 && live.marked === 0 && (
+        <Panel>
+          <p className="text-sm">
+            <span className="text-amber-400 font-medium">
+              {plural(live.open, "open position")} with no live price.
+            </span>{" "}
+            <span className="text-muted">
+              The mark comes off the WebSocket feed, so this means the feed is not delivering —
+              check <code>feed.phase</code> and <code>feed.lastError</code> on{" "}
+              <code>GET /momentum/status</code>. Entries and settlement are unaffected; only the
+              running number is missing.
+            </span>
+          </p>
+        </Panel>
+      )}
+
       {/* --------------------------------------------------------------------- totals --- */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+      <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 ${live.open > 0 ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
         <Stat label="Trades" value={String(t.trades)} note={`${t.open} open · ${t.untracked} not priced`} />
         <Stat label="Win rate" value={t.winRate === null ? "—" : pct(t.winRate, 0, false)} note={`${t.wins}W / ${t.losses}L`} />
         <Stat label="Amount used" value={inr(t.amountUsed)} note="premium deployed" />
@@ -242,6 +346,21 @@ export default function TradeJournalClient({
           value={`${inr(t.best, true)} / ${inr(t.worst, true)}`}
           note="single trade"
         />
+        {/* Its own tile rather than folded into Net P&L, which is the realised number. Adding an
+            unrealised mark to a settled total would make the day's result move every fifteen
+            seconds and stop meaning what it says. */}
+        {live.open > 0 && (
+          <Stat
+            label="Open now"
+            value={live.marked ? inr(live.net, true) : "—"}
+            cls={live.marked ? sign(live.net) : ""}
+            note={
+              live.marked === 0
+                ? `${live.open} open · not priced`
+                : `${live.marked}/${live.open} priced · ${pct(live.netPct)} · after charges`
+            }
+          />
+        )}
       </div>
 
       {/* What the tighter exits would have produced on the same prices. Here rather than in a
@@ -275,7 +394,10 @@ export default function TradeJournalClient({
         </Panel>
       ) : (
         view.days.map((d) => (
-          <TradeTable key={d.day} day={d.day} trades={d.trades} totals={d.totals} onEdit={setEditing} />
+          <TradeTable
+            key={d.day} day={d.day} trades={d.trades} totals={d.totals}
+            chargePerLot={view.config.chargePerLot} nowMs={nowMs} onEdit={setEditing}
+          />
         ))
       )}
 
@@ -393,9 +515,20 @@ function ShadowCard({ name, netPnl, wins, trades, active = false }: {
   );
 }
 
-function TradeTable({ day, trades, totals, onEdit }: {
-  day: string; trades: JournalTrade[]; totals: JournalDayTotals; onEdit: (t: JournalTrade) => void;
+function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit }: {
+  day: string; trades: JournalTrade[]; totals: JournalDayTotals; chargePerLot: number;
+  /** 0 when the page is not polling — the "12s ago" line is hidden rather than frozen. */
+  nowMs: number;
+  onEdit: (t: JournalTrade) => void;
 }) {
+  // Every money column asks the same question of a row: is it closed, or is it open with a
+  // price on it? Answered once here so the four of them cannot disagree.
+  const liveFor = (r: JournalTrade) => liveOf(r, chargePerLot);
+
+  // Live rows sort with the closed ones instead of sinking to the bottom on a null.
+  const dayNet = totals.netPnl + trades.reduce((n, r) => n + (liveFor(r)?.net ?? 0), 0);
+  const anyLive = trades.some((r) => liveFor(r) !== null);
+
   const cols: Col<JournalTrade>[] = [
     {
       h: "Symbol",
@@ -442,10 +575,20 @@ function TradeTable({ day, trades, totals, onEdit }: {
       val: (r) => r.exit?.minute ?? 9_999,
       render: (r) => {
         if (!r.exit) {
+          const l = liveFor(r);
           return (
             <div className="min-w-[104px] tabular-nums">
-              <div className={sign(r.mark?.pct)}>{r.mark ? prem(r.mark.premium) : "—"}</div>
-              <div className="text-[11px] text-accent">open · mark</div>
+              <div className={sign(l?.pct)}>{l ? prem(l.premium) : "—"}</div>
+              <div className="text-[11px] text-muted">
+                {l ? (
+                  <>
+                    <span className={sign(l.pct)}>{pct(l.pct)}</span>
+                    {nowMs > 0 && <span className="ml-1 opacity-70">{ago(l.at, nowMs)}</span>}
+                  </>
+                ) : (
+                  <span className="text-accent">open · no price</span>
+                )}
+              </div>
             </div>
           );
         }
@@ -464,7 +607,19 @@ function TradeTable({ day, trades, totals, onEdit }: {
       h: "Outcome",
       val: (r) => (r.exit ? r.exit.reason : "open"),
       render: (r) => {
-        if (!r.exit) return <span className="text-[11px] px-2 py-1 rounded-full border border-accent text-accent">OPEN</span>;
+        if (!r.exit) {
+          const l = liveFor(r);
+          // Green or red while it is priced, so the badge column alone reads as a scoreboard.
+          const cls = !l ? "border-accent text-accent"
+            : l.net > 0 ? "border-emerald-800 text-bull"
+              : l.net < 0 ? "border-red-900 text-bear"
+                : "border-border text-muted";
+          return (
+            <span className={`text-[11px] px-2 py-1 rounded-full border whitespace-nowrap ${cls}`}>
+              OPEN
+            </span>
+          );
+        }
         const cls =
           r.exit.reason === "target" ? "border-emerald-800 text-bull"
             : r.exit.reason === "stop" ? "border-red-900 text-bear"
@@ -480,45 +635,81 @@ function TradeTable({ day, trades, totals, onEdit }: {
     { h: "Used", val: (r) => r.amountUsed ?? 0, render: (r) => <span className="tabular-nums">{inr(r.amountUsed)}</span> },
     {
       h: "Gross",
-      val: (r) => r.grossPnl ?? 0,
-      render: (r) => <span className={`tabular-nums ${sign(r.grossPnl)}`}>{inr(r.grossPnl, true)}</span>,
+      val: (r) => r.grossPnl ?? liveFor(r)?.gross ?? 0,
+      render: (r) => {
+        const g = r.grossPnl ?? liveFor(r)?.gross ?? null;
+        return <span className={`tabular-nums ${sign(g)}`}>{inr(g, true)}</span>;
+      },
     },
     {
       h: "Charges",
-      val: (r) => r.charges ?? 0,
-      render: (r) => <span className="tabular-nums text-muted">{r.charges === null ? "—" : inr(-r.charges)}</span>,
+      val: (r) => r.charges ?? liveFor(r)?.charges ?? 0,
+      render: (r) => {
+        // The full round trip on an open row too: it is what closing at this mark would cost,
+        // and a net that quietly omits it is the kind of number that looks better than it is.
+        const c = r.charges ?? liveFor(r)?.charges ?? null;
+        return <span className="tabular-nums text-muted">{c === null ? "—" : inr(-c)}</span>;
+      },
     },
     {
       h: "Net",
-      val: (r) => r.netPnl ?? 0,
-      render: (r) => (
-        <div className="min-w-[86px] tabular-nums">
-          <div className={`font-semibold ${sign(r.netPnl)}`}>{inr(r.netPnl, true)}</div>
-          <div className={`text-[11px] ${sign(r.netPct)}`}>{pct(r.netPct)}</div>
-        </div>
-      ),
+      val: (r) => r.netPnl ?? liveFor(r)?.net ?? 0,
+      render: (r) => {
+        const l = liveFor(r);
+        const net = r.netPnl ?? l?.net ?? null;
+        const p = r.netPct ?? l?.netPct ?? null;
+        return (
+          <div className="min-w-[86px] tabular-nums">
+            <div className={`font-semibold ${sign(net)}`}>{inr(net, true)}</div>
+            <div className={`text-[11px] ${sign(p)}`}>
+              {pct(p)}
+              {/* Marked, not booked. The row has to say which it is or the two become one
+                  number and the day's result stops being trustworthy. */}
+              {l && <span className="text-accent ml-1 not-italic">live</span>}
+            </div>
+          </div>
+        );
+      },
     },
     {
       h: "Best / worst it saw",
       val: (r) => r.mfePct ?? 0,
-      render: (r) => (
-        <div className="min-w-[132px] tabular-nums text-[11.5px]">
-          <div>
-            <span className="text-bull">{pct(r.mfePct)}</span>
-            <span className="text-muted mx-1">/</span>
-            <span className="text-bear">{pct(r.maePct)}</span>
-          </div>
-          {/* The clock times, when the row carries them. A dash beats a wrong minute: an
-              excursion of 0 never happened, so it has no moment to name. */}
-          {(r.mfeMinute != null || r.maeMinute != null) && (
-            <div className="text-[10.5px] text-muted">
-              {sessionClock(r.mfeMinute)}
-              <span className="mx-1">/</span>
-              {sessionClock(r.maeMinute)}
+      render: (r) => {
+        // How much of the trade these two numbers actually cover. A row whose marking started
+        // hours after entry has a blind window at the front, and the honest thing is to say so
+        // on the row rather than let two confident percentages imply the whole day.
+        const from = excursionFrom(r);
+        return (
+          <div className="min-w-[132px] tabular-nums text-[11.5px]">
+            <div className={from === null ? "" : "opacity-70"}>
+              <span className="text-bull">{pct(r.mfePct)}</span>
+              <span className="text-muted mx-1">/</span>
+              <span className="text-bear">{pct(r.maePct)}</span>
             </div>
-          )}
-        </div>
-      ),
+            {/* The clock times, when the row carries them. A dash beats a wrong minute: an
+                excursion of 0 never happened, so it has no moment to name. */}
+            {(r.mfeMinute != null || r.maeMinute != null) && (
+              <div className="text-[10.5px] text-muted">
+                {sessionClock(r.mfeMinute)}
+                <span className="mx-1">/</span>
+                {sessionClock(r.maeMinute)}
+              </div>
+            )}
+            {from !== null && (
+              <div
+                className="text-[10.5px] text-amber-400/90"
+                title={
+                  `Not watched from entry. This row was first priced at ${sessionClock(from)}, so ` +
+                  `${sessionClock(r.entry.minute)}–${sessionClock(from)} is missing from both figures. ` +
+                  "Settling the day re-reads the contract's own candles and fills the gap in."
+                }
+              >
+                only since {sessionClock(from)}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       h: "",
@@ -544,7 +735,16 @@ function TradeTable({ day, trades, totals, onEdit }: {
         <div className="flex items-center gap-3 text-[12px] tabular-nums">
           <span className="text-muted">{plural(totals.trades, "trade")}</span>
           {totals.winRate !== null && <span className="text-muted">{pct(totals.winRate, 0, false)} won</span>}
-          <span className={`font-semibold ${sign(totals.netPnl)}`}>{inr(totals.netPnl, true)}</span>
+          {/* Closed and open shown apart. One combined figure would move on every tick and
+              still be labelled as the day's result. */}
+          <span className={`font-semibold ${sign(totals.netPnl)}`} title="booked">
+            {inr(totals.netPnl, true)}
+          </span>
+          {anyLive && (
+            <span className={`font-semibold ${sign(dayNet)}`} title="including open positions at their current mark">
+              {inr(dayNet, true)} <span className="text-accent font-normal">live</span>
+            </span>
+          )}
         </div>
       }
     >
