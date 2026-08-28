@@ -55,6 +55,16 @@ export default function TradeJournalClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<JournalTrade | null>(null);
+  /**
+   * The row the exit dialog is open on, held as an ID rather than as the row itself.
+   *
+   * The dialog quotes a price and the page keeps polling underneath it. Holding a copy of the
+   * trade would freeze that quote at the moment of the click, so a dialog left open for thirty
+   * seconds would ask you to confirm a number the market has already left behind. Resolving the
+   * id against the current `view` on every render means the figure in front of you keeps moving,
+   * which is the truth about what you are agreeing to.
+   */
+  const [exitingId, setExitingId] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
   const [settleNote, setSettleNote] = useState<string | null>(null);
 
@@ -72,6 +82,13 @@ export default function TradeJournalClient({
   const live = useMemo(
     () => liveTotals(view.days, view.config.chargePerLot),
     [view],
+  );
+
+  const exiting = useMemo(
+    () => (exitingId
+      ? view.days.flatMap((d) => d.trades).find((t) => t.id === exitingId) ?? null
+      : null),
+    [view, exitingId],
   );
 
   const { from, to } = useMemo(() => rangeFor(mode, anchor, customFrom), [mode, anchor, customFrom]);
@@ -168,7 +185,8 @@ export default function TradeJournalClient({
             1-minute candles after the close. Entry is the ask at signal time; exit is{" "}
             <span className="text-white">+{Math.round(100 * view.config.tpPct)}%</span> or{" "}
             <span className="text-white">−{Math.round(100 * view.config.slPct)}%</span> of premium, else
-            squared off at {sessionClock(view.config.squareOffMin)}.
+            squared off at {sessionClock(view.config.squareOffMin)} — or whenever you close a row
+            yourself with <span className="text-white">Exit</span>.
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2 text-[11px] text-muted">
@@ -397,6 +415,7 @@ export default function TradeJournalClient({
           <TradeTable
             key={d.day} day={d.day} trades={d.trades} totals={d.totals}
             chargePerLot={view.config.chargePerLot} nowMs={nowMs} onEdit={setEditing}
+            onExit={(t) => setExitingId(t.id)}
           />
         ))
       )}
@@ -406,6 +425,15 @@ export default function TradeJournalClient({
           trade={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void load(); }}
+        />
+      )}
+
+      {exiting && (
+        <ExitDialog
+          trade={exiting}
+          chargePerLot={view.config.chargePerLot}
+          onClose={() => setExitingId(null)}
+          onExited={() => { setExitingId(null); void load(); }}
         />
       )}
     </main>
@@ -515,11 +543,13 @@ function ShadowCard({ name, netPnl, wins, trades, active = false }: {
   );
 }
 
-function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit }: {
+function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit, onExit }: {
   day: string; trades: JournalTrade[]; totals: JournalDayTotals; chargePerLot: number;
   /** 0 when the page is not polling — the "12s ago" line is hidden rather than frozen. */
   nowMs: number;
   onEdit: (t: JournalTrade) => void;
+  /** Open the confirmation dialog on this row. Selling is the dialog's job, not the table's. */
+  onExit: (t: JournalTrade) => void;
 }) {
   // Every money column asks the same question of a row: is it closed, or is it open with a
   // price on it? Answered once here so the four of them cannot disagree.
@@ -714,13 +744,26 @@ function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit }: {
     {
       h: "",
       render: (r) => (
-        <button
-          onClick={() => onEdit(r)}
-          className="text-[11px] px-2 py-1 rounded-lg border border-border text-muted hover:bg-chip hover:text-white whitespace-nowrap"
-          title="Replace these prices with your actual fill"
-        >
-          {r.edited ? "edited" : "my fill"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* Only a position that is actually running can be sold. A closed row has no exit to
+              take, and offering the button there would be an action that can only fail. */}
+          {r.status === "open" && !r.exit && (
+            <button
+              onClick={() => onExit(r)}
+              className="text-[11px] px-2 py-1 rounded-lg border border-border text-muted hover:border-bear hover:bg-bear/10 hover:text-bear whitespace-nowrap"
+              title="Close this position at the live bid. Asks for confirmation first."
+            >
+              Exit
+            </button>
+          )}
+          <button
+            onClick={() => onEdit(r)}
+            className="text-[11px] px-2 py-1 rounded-lg border border-border text-muted hover:bg-chip hover:text-white whitespace-nowrap"
+            title="Replace these prices with your actual fill"
+          >
+            {r.edited ? "edited" : "my fill"}
+          </button>
+        </div>
       ),
     },
   ];
@@ -750,6 +793,147 @@ function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit }: {
     >
       <DataTable cols={cols} rows={trades} rowKey={(r) => r.id} height={420} pin={1} />
     </TableCard>
+  );
+}
+
+/* ------------------------------------------------------------------ the manual exit --- */
+
+/**
+ * Confirm selling one open position, at whatever the feed is bidding.
+ *
+ * IT ASKS BEFORE IT SELLS, and that is the whole reason this is a dialog. Every other control on
+ * this page is reversible or read-only; this one ends a live position while the market is open,
+ * from a row in a table that re-sorts itself every thirty seconds. What makes a dialog the right
+ * shape rather than merely a safer one is that a confirmation is only worth asking for if it
+ * shows you something the button could not: the price, and the money that price books.
+ *
+ * THE NUMBERS KEEP MOVING WHILE IT IS OPEN, because the page is still polling and the parent
+ * resolves this row fresh on every render. A frozen quote would be the one dishonest thing a
+ * confirmation could do — agreeing to a figure that stopped being true while you read it.
+ *
+ * AND THE FIGURE IS STILL NOT THE FILL. The server prices the sale from the feed at the instant
+ * the request lands, which is a moment later and a different tick. It is said plainly below
+ * rather than left to be discovered from a row that closed a rupee away from what was quoted.
+ */
+function ExitDialog({ trade, chargePerLot, onClose, onExited }: {
+  trade: JournalTrade; chargePerLot: number; onClose: () => void; onExited: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const live = liveOf(trade, chargePerLot);
+  // The row can close underneath an open dialog — the target or the stop can fire on the very
+  // tick you are reading. Better to say so than to let the confirm fail with "already closed".
+  const gone = trade.status !== "open" || trade.exit !== null;
+
+  const go = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/momentum/journal/${encodeURIComponent(trade.id)}/exit`, {
+        method: "POST",
+      });
+      const j = await res.json();
+      // The upstream refusals are specific and actionable — "already closed" and "no price in the
+      // last 120s" want different things from you — so the message is shown as it arrived.
+      if (!res.ok) throw new Error(j?.error ?? `exit failed (${res.status})`);
+      onExited();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="panel p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-[16px] font-semibold">
+          Close {trade.symbol} {trade.contract?.label ?? ""}?
+        </h2>
+        <p className="text-[11.5px] text-muted mt-1">
+          {trade.day} · {CHANNEL_LABEL[trade.channel]} · bought {prem(trade.entry.premium)} at{" "}
+          {sessionClock(trade.entry.minute)} · {trade.lots} lot × {trade.contract?.lotSize ?? "—"}
+        </p>
+
+        {gone ? (
+          <p className="text-amber-400 text-[13px] mt-4">
+            This position has already closed{trade.exit ? ` — ${EXIT_LABEL[trade.exit.reason].toLowerCase()}` : ""}.
+            Nothing left to sell.
+          </p>
+        ) : (
+          <>
+            <div className="rounded-xl border border-border bg-chip mt-4 divide-y divide-border">
+              <Line label="Selling at" value={live ? prem(live.premium) : "—"} note="the bid, live" strong />
+              <Line label="Gross" value={inr(live?.gross ?? null, true)} cls={sign(live?.gross)} />
+              <Line label="Charges" value={live ? inr(-live.charges) : "—"} cls="text-muted" note="round trip" />
+              <Line
+                label="Net"
+                value={inr(live?.net ?? null, true)}
+                note={live ? pct(live.netPct) : undefined}
+                cls={sign(live?.net)}
+                strong
+              />
+            </div>
+
+            {!live && (
+              <p className="text-amber-400 text-[11.5px] mt-3">
+                The feed has no price on this contract right now, so there is nothing to quote. The
+                exit will be refused unless a print arrives — use <span className="font-medium">my fill</span> to
+                record the price you actually got.
+              </p>
+            )}
+
+            <p className="text-[11.5px] text-muted mt-3">
+              Priced from the feed when you confirm, so the fill may differ from the figure above by
+              a tick. Recorded as <span className="text-white">your</span> exit — the nightly
+              settlement will not overwrite it, and{" "}
+              <span className="text-white">Revert to settled</span> undoes it. Nothing is sent to
+              your broker.
+            </p>
+          </>
+        )}
+
+        {err && <p className="text-bear text-[12px] mt-3">{err}</p>}
+
+        <div className="flex items-center gap-2 mt-5">
+          {!gone && (
+            <button
+              onClick={() => void go()}
+              disabled={busy}
+              className="px-3.5 py-2 rounded-lg bg-bear text-white text-[13px] font-medium disabled:opacity-50"
+            >
+              {busy ? "Selling…" : live ? `Sell at ${prem(live.premium)}` : "Sell at the bid"}
+            </button>
+          )}
+          <button onClick={onClose} className="ml-auto px-3 py-2 text-[13px] text-muted hover:text-white">
+            {gone ? "Close" : "Cancel"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One row of the money box. Kept local — nothing else on the page lays out a label/value pair. */
+function Line({ label, value, note, cls = "", strong = false }: {
+  label: string; value: string; note?: string; cls?: string; strong?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between px-3.5 py-2">
+      <span className="text-[11.5px] text-muted">{label}</span>
+      <span className="text-right">
+        <span className={`tabular-nums ${strong ? "text-[15px] font-semibold" : "text-[13px]"} ${cls}`}>
+          {value}
+        </span>
+        {note && <span className="text-[10.5px] text-muted ml-1.5">{note}</span>}
+      </span>
+    </div>
   );
 }
 

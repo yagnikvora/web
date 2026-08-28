@@ -300,7 +300,9 @@ export const EXIT_LABEL: Record<ExitReason, string> = {
   target: "Target",
   stop: "Stopped",
   "square-off": "Squared off",
-  manual: "Your fill",
+  // Covers both ways a position ends on the operator's say-so: a price typed in from the
+  // contract note, and the row's own Exit button. "Your fill" only described the first.
+  manual: "You exited",
   untracked: "Not priced",
 };
 
