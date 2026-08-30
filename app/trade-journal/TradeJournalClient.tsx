@@ -13,45 +13,79 @@
 // The polling is narrow on purpose. It runs only when the range on screen includes today AND
 // something in it is still open AND the tab is visible; the moment the last position closes it
 // stops on its own. A settled day cannot change, and re-asking for one is pure noise.
+//
+// THE LAYOUT IS A PORTFOLIO, NOT A LOG. The headline number and the curve that produced it come
+// first, the statistics that qualify them come second, and the individual positions come last —
+// because the question this page is opened with is "is this working", and only then "what
+// happened on the 14th".
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Panel } from "@/components/ui";
-import { Col, DataTable, TableCard } from "@/components/table";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ago, CHANNEL_LABEL, EXIT_LABEL, excursionFrom, inr, istToday, JournalSyncProbe, JournalTrade,
-  JournalView,
-  liveOf, liveTotals, pct, plural, prem, RangeMode, rangeFor, sessionClock, shiftDay, syncLabel,
-  type JournalChannel,
+  ago, CHANNEL_LABEL, inr, istToday, JournalSyncProbe, JournalTrade, JournalView, liveTotals, pct,
+  plural, rangeFor, RangeMode, sessionClock, shiftDay, syncLabel, type JournalChannel,
 } from "@/lib/journal";
+import EChart from "@/components/EChart";
+import { isMarketOpen } from "@/lib/live";
+import { calendar, holdLabel, rollup } from "./analytics";
+import { dailyOption, equityOption, tradeOption } from "./charts";
+import { EditDialog, ExitDialog } from "./dialogs";
+import {
+  Card, CalendarGrid, ChannelEdge, ExitMix, Hero, IconButton, Notice, Segmented, ShadowLab,
+  short, StatCard, WinBar, pretty, weekday,
+} from "./parts";
+import { ExitLab } from "./ExitLab";
+import { RangePicker } from "./RangePicker";
+import { DaySection } from "./trades";
 
 const CHANNELS: Array<JournalChannel | "all"> = ["all", "displacement", "trend-day", "ignition"];
+
 const MODES: Array<{ k: RangeMode; label: string }> = [
   { k: "day", label: "Day" },
   { k: "week", label: "7 days" },
-  { k: "month", label: "Month to date" },
+  { k: "month", label: "Month" },
   { k: "custom", label: "Custom" },
 ];
 
-// How often to re-ask, in seconds. 0 is off — kept as a real choice because the page is also
-// read at night, when a timer would only spin.
-const REFRESH: Array<{ s: number; label: string }> = [
-  { s: 0, label: "Off" },
-  { s: 15, label: "15s" },
-  { s: 30, label: "30s" },
-  { s: 60, label: "1m" },
+/*
+ * How often to re-ask, in seconds. 0 is off — kept as a real choice because the page is also
+ * read at night, when a timer would only spin.
+ *
+ * WHAT 2s DOES AND DOES NOT BUY. The page can ask this often; the numbers cannot answer that
+ * fast. A mark on an open position is written by the API's `journalTick`, which runs on
+ * `refresh.quoteMs` — 15 seconds by default, and floored at 5 by the config clamp. `journalRange`
+ * serves what is stored and never re-prices on read, so at 2s roughly seven asks in eight come
+ * back with the row unchanged.
+ *
+ * What it does buy is latency at the moment something DOES change: a mark, a stop firing, a
+ * settle finishing or an exit taken on another machine reaches this page within two seconds
+ * instead of within fifteen. That is the whole of it — for genuinely 2s-fresh marks the server
+ * has to mark more often, or price on read.
+ */
+const REFRESH: Array<{ k: number; label: string }> = [
+  { k: 0, label: "Off" },
+  { k: 2, label: "2s" },
+  { k: 15, label: "15s" },
+  { k: 30, label: "30s" },
+  { k: 60, label: "1m" },
 ];
 
-const sign = (n: number | null | undefined) =>
-  n === null || n === undefined ? "text-muted" : n > 0 ? "text-bull" : n < 0 ? "text-bear" : "text-muted";
+type Lens = "curve" | "day" | "trade" | "calendar";
 
 export default function TradeJournalClient({
-  initial, source,
-}: { initial: JournalView; source?: string }) {
+  initial, source, mode: mode0 = "day", channel: channel0 = "all", customFrom: customFrom0,
+}: {
+  initial: JournalView;
+  source?: string;
+  /** The range the URL asked for. Resolved on the server — see the note in page.tsx. */
+  mode?: RangeMode;
+  channel?: JournalChannel | "all";
+  customFrom?: string;
+}) {
   const [view, setView] = useState<JournalView>(initial);
   const [anchor, setAnchor] = useState(initial.to);
-  const [mode, setMode] = useState<RangeMode>("day");
-  const [customFrom, setCustomFrom] = useState(initial.from);
-  const [channel, setChannel] = useState<JournalChannel | "all">("all");
+  const [mode, setMode] = useState<RangeMode>(mode0);
+  const [customFrom, setCustomFrom] = useState(customFrom0 ?? initial.from);
+  const [channel, setChannel] = useState<JournalChannel | "all">(channel0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<JournalTrade | null>(null);
@@ -67,10 +101,36 @@ export default function TradeJournalClient({
   const [exitingId, setExitingId] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
   const [settleNote, setSettleNote] = useState<string | null>(null);
+  const [lens, setLens] = useState<Lens>("day");
+  /**
+   * Which day sections are expanded, by date.
+   *
+   * Only the ones actually toggled are in here; everything else falls back to the rule below.
+   * Holding a full map of every day would mean rebuilding it on every range change, and the
+   * question "did the reader open this one" is exactly what the sparse map answers.
+   */
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const [autoSec, setAutoSec] = useState(30);
+  const [autoSec, setAutoSec] = useState(2);
+  /**
+   * Whether the NSE session is running.
+   *
+   * State on a slow timer rather than a call during render, for two reasons: a page opened at
+   * 09:10 has to start polling when the bell rings without anything else nudging it, and a
+   * render-time clock read would differ between the server's HTML and the browser's first pass.
+   * Starting `false` means both agree, and the first tick corrects it a moment after mount.
+   */
+  const [marketOpen, setMarketOpen] = useState(false);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    const check = () => setMarketOpen(isMarketOpen());
+    check();
+    const id = setInterval(check, 20_000);
+    return () => clearInterval(id);
+  }, []);
 
   const unsettled = useMemo(
     () => view.days.reduce((n, d) => n + d.trades.filter((t) => !t.settled).length, 0),
@@ -79,10 +139,10 @@ export default function TradeJournalClient({
 
   // The open book at its current marks. Recomputed from `view` rather than tracked separately, so
   // there is exactly one copy of "what is open right now" and it cannot drift from the table.
-  const live = useMemo(
-    () => liveTotals(view.days, view.config.chargePerLot),
-    [view],
-  );
+  const live = useMemo(() => liveTotals(view.days, view.config.chargePerLot), [view]);
+
+  // Everything the API does not send: the curve, the drawdown, the averages.
+  const roll = useMemo(() => rollup(view.days), [view]);
 
   const exiting = useMemo(
     () => (exitingId
@@ -93,7 +153,19 @@ export default function TradeJournalClient({
 
   const { from, to } = useMemo(() => rangeFor(mode, anchor, customFrom), [mode, anchor, customFrom]);
 
+  const months = useMemo(() => calendar(from, to, roll.daily), [from, to, roll.daily]);
+
+  /**
+   * Whether an answer is still outstanding.
+   *
+   * A ref rather than `busy`, because the poll below needs to read it without the interval being
+   * torn down and rebuilt on every request — and because it has to be true the instant `load` is
+   * entered, which a state update is not.
+   */
+  const inFlight = useRef(false);
+
   const load = useCallback(async () => {
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -107,6 +179,7 @@ export default function TradeJournalClient({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, [from, to, channel]);
@@ -115,8 +188,28 @@ export default function TradeJournalClient({
   const [primed, setPrimed] = useState(false);
   useEffect(() => {
     if (!primed) { setPrimed(true); return; }
+    // A new range starts from the default again. `load` only changes identity when the range or
+    // the channel does, so this clears exactly when the day list underneath is being replaced —
+    // and a "collapse all" chosen for a month does not follow you into a single day.
+    setOpenDays({});
     void load();
   }, [load, primed]);
+
+  /*
+   * Keep the address bar on the range being read.
+   *
+   * `replaceState` rather than a router push: this is not navigation, it is a bookmark being
+   * kept current, and a history entry per date-arrow click would turn the back button into an
+   * undo stack for a stepper. What it buys is that a journal can be linked — "look at the 14th"
+   * is a URL — and that a refresh comes back to the same day instead of to today.
+   */
+  useEffect(() => {
+    const qs = new URLSearchParams({ d: anchor });
+    if (mode !== "day") qs.set("mode", mode);
+    if (mode === "custom") qs.set("from", customFrom);
+    if (channel !== "all") qs.set("channel", channel);
+    window.history.replaceState(null, "", `${window.location.pathname}?${qs}`);
+  }, [anchor, mode, customFrom, channel]);
 
   /**
    * Run the settlement pass, then reload.
@@ -133,7 +226,11 @@ export default function TradeJournalClient({
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error ?? `settle failed (${res.status})`);
       const n = j?.data?.settled ?? 0;
-      setSettleNote(n ? `${plural(n, "trade")} settled from the contract's candles.` : (j?.note ?? "Nothing was outstanding."));
+      setSettleNote(
+        n
+          ? `${plural(n, "trade")} settled from the contract's candles.`
+          : (j?.note ?? "Nothing was outstanding."),
+      );
       await load();
     } catch (e) {
       setSettleNote((e as Error).message);
@@ -144,22 +241,35 @@ export default function TradeJournalClient({
 
   const today = istToday();
   const t = view.totals;
+  const hasTrades = t.trades > 0;
 
   /*
    * The refresh loop.
    *
-   * Three conditions, all of which have to hold: the timer is on, the range on screen reaches
-   * today, and something in it is still open. Anything else is a finished record, and the page
-   * stops asking about it without being told to.
+   * The timer has to be on, and the range on screen has to reach today — a settled day cannot
+   * change, and re-asking for one is pure noise.
+   *
+   * The third condition used to be "and something in it is still open", which quietly broke the
+   * case this page is most wanted in. A live session starts with an EMPTY journal: at 09:15
+   * nothing is open, so nothing polled, so the first alert of the day never appeared on its own
+   * and you had to press the refresh button to discover it. The same hole reopened every time
+   * the book went flat. So it now also polls whenever the market is simply open, and the "still
+   * open" clause is kept alongside it for the one case it still covers on its own — a position
+   * carried past 15:30 while the page is left up.
    */
-  const polling = autoSec > 0 && live.open > 0 && to >= today;
+  const polling = autoSec > 0 && to >= today && (live.open > 0 || marketOpen);
 
   useEffect(() => {
     if (!polling) return;
     const id = setInterval(() => {
       // A tab in the background is a tab nobody is reading. Skipping it keeps a journal left
-      // open overnight from spending a request every thirty seconds until morning.
+      // open overnight from spending a request every two seconds until morning.
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      // And a slow answer must not queue another ask behind it. At 15s that could not really
+      // happen; at 2s a request that outlives its own interval would stack, and the page would
+      // spend the rest of the session working through a backlog of stale answers. Only the
+      // timer skips — a range change calls `load` directly and must always be fetched.
+      if (inFlight.current) return;
       void load();
     }, autoSec * 1000);
     return () => clearInterval(id);
@@ -175,249 +285,511 @@ export default function TradeJournalClient({
     return () => clearInterval(id);
   }, [polling]);
 
+  // A day or two opens expanded; a month opens as a list of headers you can drop into. Eighteen
+  // open tables is not a page anybody reads top to bottom.
+  const openByDefault = view.days.length <= 3;
+  const isOpen = (day: string) => openDays[day] ?? openByDefault;
+  const allOpen = view.days.every((d) => isOpen(d.day));
+
+  /**
+   * Switch range mode, and give Custom something worth looking at.
+   *
+   * Arriving on Custom from a single day would leave both ends on the same date — a "custom
+   * range" that is indistinguishable from Day, and a picker you have to use before the mode
+   * means anything. So a degenerate range is widened to the last 30 days, and the picker opens
+   * on the spot for anyone who wanted a different one.
+   */
+  const pickMode = (m: RangeMode) => {
+    setMode(m);
+    if (m !== "custom") { setPickerOpen(false); return; }
+    if (customFrom >= anchor) setCustomFrom(shiftDay(anchor, -29));
+    setPickerOpen(true);
+  };
+
+  const oneDay = from === to;
+  const rangeLabel = oneDay
+    ? `${pretty(from)} · ${weekday(from)}`
+    : `${pretty(from)} → ${pretty(to)}`;
+
+  /*
+   * Which views of the performance panel this range can actually support, and which one it opens
+   * on. Derived rather than corrected in an effect, so a range change can never leave a tab
+   * selected that has no chart behind it.
+   *
+   * The default is the view that adds something the hero has not already said: over a range that
+   * is the shape of the days, and over a single session it is the trades themselves.
+   */
+  const lenses: Array<{ k: Lens; label: string }> = [
+    { k: "curve", label: "Curve" },
+    ...(oneDay ? [] : [{ k: "day" as Lens, label: "By day" }]),
+    { k: "trade", label: "By trade" },
+    ...(oneDay ? [] : [{ k: "calendar" as Lens, label: "Calendar" }]),
+  ];
+  const shownLens: Lens = lenses.some((l) => l.k === lens) ? lens : oneDay ? "trade" : "day";
+
+  const liveStatus = (
+    <div className="flex items-center gap-2 text-[11px] text-muted">
+      {busy && <span className="text-accent">loading…</span>}
+      {polling && nowMs > 0 && (
+        <span
+          className="inline-flex items-center gap-1.5"
+          title={`re-asking every ${autoSec}s while a position is open`}
+        >
+          <span className="w-[6px] h-[6px] rounded-full bg-bull animate-pulse" />
+          {loadedAt === null ? "live" : `updated ${ago(loadedAt, nowMs)}`}
+        </span>
+      )}
+      <StoreBadge sync={view.sync} />
+    </div>
+  );
+
   return (
-    <main className="p-5 space-y-4">
-      <header className="flex flex-wrap items-end gap-3">
-        <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">Trade Journal</h1>
-          <p className="text-muted text-sm mt-1 max-w-2xl">
+    <div className="space-y-4">
+      {/* ------------------------------------------------------------------ the title --- */}
+      <header className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h1 className="text-[26px] sm:text-3xl font-extrabold tracking-tight">Trade Journal</h1>
+          <p className="text-muted text-[12.5px] mt-1 max-w-3xl leading-relaxed">
             Every alert this app sent, recorded as a position and settled from the contract&apos;s own
-            1-minute candles after the close. Entry is the ask at signal time; exit is{" "}
+            1-minute candles after the close. Entry is the ask at signal time; the exit is{" "}
             <span className="text-white">+{Math.round(100 * view.config.tpPct)}%</span> or{" "}
-            <span className="text-white">−{Math.round(100 * view.config.slPct)}%</span> of premium, else
-            squared off at {sessionClock(view.config.squareOffMin)} — or whenever you close a row
-            yourself with <span className="text-white">Exit</span>.
+            <span className="text-white">−{Math.round(100 * view.config.slPct)}%</span> of premium
+            {/* The checkpoint, only mentioned when it is switched on — JOURNAL_ARM_AT_PCT=0
+                turns it off, and describing a rule the record is not being graded under would
+                be worse than saying nothing. */}
+            {view.config.armAtPct ? (
+              <>
+                {" "}— with the stop moved once to{" "}
+                <span className="text-white">{pct(view.config.lockPct, 0)}</span> after it has been
+                up {pct(view.config.armAtPct, 0, false)}
+              </>
+            ) : null}
+            , else squared off at {sessionClock(view.config.squareOffMin)} — or whenever you close a
+            row yourself.
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-muted">
-          {busy && <span className="text-accent">loading…</span>}
-          {!view.config.enabled && (
-            <span className="text-bear">journal is off — set JOURNAL=on in api/.env</span>
-          )}
-          {polling && nowMs > 0 && (
-            <span title={`re-asking every ${autoSec}s while a position is open`}>
-              <span className="text-bull">●</span>{" "}
-              {loadedAt === null ? "live" : `updated ${ago(loadedAt, nowMs)}`}
-            </span>
-          )}
-          <StoreBadge sync={view.sync} />
-        </div>
+        <div className="ml-auto">{liveStatus}</div>
       </header>
 
-      {/* ------------------------------------------------------------------- controls --- */}
-      <Panel>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          <div className="flex items-center gap-2">
-            <button
-              className="chip !px-2.5 !py-1.5 hover:bg-border"
-              onClick={() => setAnchor((a) => shiftDay(a, -1))}
-              aria-label="previous day"
-            >‹</button>
-            <input
-              type="date"
-              value={anchor}
+      {/* ---------------------------------------------------------------- the controls --- */}
+      {/*
+        Sticky from `sm` up only. On a desktop this bar is one row and keeping it in reach while
+        a long month scrolls is exactly right. On a phone it wraps to four rows — pinning 290px
+        of controls over the top of the reading area would cost more than it saves, so there it
+        scrolls away like anything else.
+      */}
+      <div
+        /*
+          `relative` is load-bearing, not decoration. `backdrop-blur` creates a stacking context,
+          which scopes the range picker's popover to this bar — and on a phone, where the bar is
+          not sticky, a bare `z-20` on a statically positioned element does nothing at all. The
+          hero card below is `relative`, so it would paint straight over the open calendar.
+        */
+        className="relative sm:sticky sm:top-[59px] z-20 -mx-3 sm:-mx-5 px-3 sm:px-5 py-2.5 border-y border-border
+                   bg-[#0a0e14] supports-[backdrop-filter]:bg-[#0a0e14]/85 backdrop-blur-md"
+      >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {/* Day, 7 days and Month are all anchored on one date, so they get a stepper. Custom
+              is the only mode with two independent ends, and it gets a control shaped like a
+              range instead of a stepper standing in for one. */}
+          {mode === "custom" ? (
+            <RangePicker
+              from={from}
+              to={to}
               max={today}
-              onChange={(e) => e.target.value && setAnchor(e.target.value)}
-              className="chip !py-1.5 bg-chip text-white [color-scheme:dark]"
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              onChange={(f, t2) => { setCustomFrom(f); setAnchor(t2); }}
             />
-            <button
-              className="chip !px-2.5 !py-1.5 hover:bg-border disabled:opacity-40"
-              disabled={anchor >= today}
-              onClick={() => setAnchor((a) => shiftDay(a, 1))}
-              aria-label="next day"
-            >›</button>
-            <button
-              className="chip !py-1.5 hover:bg-border disabled:opacity-40"
-              disabled={anchor === today}
-              onClick={() => setAnchor(today)}
-            >Today</button>
-          </div>
-
-          <div className="flex items-center gap-1">
-            {MODES.map((m) => (
-              <button
-                key={m.k}
-                onClick={() => setMode(m.k)}
-                className={`text-[12.5px] px-2.5 py-1.5 rounded-lg border ${
-                  mode === m.k ? "bg-accent text-white border-accent" : "border-border text-muted hover:bg-chip"
-                }`}
-              >{m.label}</button>
-            ))}
-            {mode === "custom" && (
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <IconButton onClick={() => setAnchor((a) => shiftDay(a, -1))} title="previous day">‹</IconButton>
               <input
                 type="date"
-                value={customFrom}
-                max={anchor}
-                onChange={(e) => e.target.value && setCustomFrom(e.target.value)}
-                className="chip !py-1.5 ml-1 bg-chip text-white [color-scheme:dark]"
-                aria-label="range start"
+                value={anchor}
+                max={today}
+                onChange={(e) => e.target.value && setAnchor(e.target.value)}
+                className="h-[32px] rounded-lg border border-border bg-chip px-2.5 text-[12.5px] text-white
+                           tabular-nums [color-scheme:dark] outline-none focus:border-accent/60"
+                aria-label="date"
               />
-            )}
-          </div>
-
-          {/* The refresh cadence. Sits with the range controls because that is what it belongs
-              to — how often to re-ask is a property of the window being looked at, and it has
-              no effect at all on a window that cannot change. */}
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-muted mr-1">Live</span>
-            {REFRESH.map((r) => (
+              <IconButton
+                onClick={() => setAnchor((a) => shiftDay(a, 1))}
+                disabled={anchor >= today}
+                title="next day"
+              >›</IconButton>
               <button
-                key={r.s}
-                onClick={() => setAutoSec(r.s)}
-                className={`text-[12px] px-2 py-1.5 rounded-lg border ${
-                  autoSec === r.s ? "bg-accent text-white border-accent" : "border-border text-muted hover:bg-chip"
-                }`}
-              >{r.label}</button>
-            ))}
-            <button
-              onClick={() => void load()}
-              disabled={busy}
-              className="text-[12px] px-2.5 py-1.5 rounded-lg border border-border text-muted hover:bg-chip hover:text-white disabled:opacity-40 ml-1"
-              title="Re-ask now"
-            >↻</button>
-          </div>
+                type="button"
+                disabled={anchor === today}
+                onClick={() => setAnchor(today)}
+                className="h-[32px] px-3 rounded-lg border border-border bg-chip text-[12.5px] text-muted
+                           hover:text-white hover:border-white/20 disabled:opacity-35 transition-colors"
+              >
+                Today
+              </button>
+            </div>
+          )}
+
+          <Segmented value={mode} options={MODES} onChange={pickMode} />
 
           {/* The channel filter. This is the comparison the journal exists to make — the three
-              channels have very different track records and the only honest way to find out
+              channels have very different track records, and the only honest way to find out
               which is worth acting on is to score them separately on real prices. */}
-          <div className="flex items-center gap-1 ml-auto">
-            {CHANNELS.map((c) => {
+          <Segmented
+            value={channel}
+            onChange={setChannel}
+            options={CHANNELS.map((c) => {
               const row = c === "all" ? null : t.byChannel.find((x) => x.channel === c);
-              return (
-                <button
-                  key={c}
-                  onClick={() => setChannel(c)}
-                  title={row ? `${row.trades} trades · ${inr(row.netPnl, true)}` : undefined}
-                  className={`text-[12.5px] px-2.5 py-1.5 rounded-lg border ${
-                    channel === c ? "bg-accent text-white border-accent" : "border-border text-muted hover:bg-chip"
-                  }`}
-                >
-                  {c === "all" ? "All channels" : CHANNEL_LABEL[c]}
-                  {row && <span className="opacity-60 ml-1.5">{row.trades}</span>}
-                </button>
-              );
+              return {
+                k: c,
+                label: c === "all" ? "All" : CHANNEL_LABEL[c],
+                badge: row ? row.trades : undefined,
+                title: row ? `${plural(row.trades, "trade")} · ${inr(row.netPnl, true)}` : undefined,
+              };
             })}
+          />
+
+          {/*
+            The refresh cadence sits with the range controls because that is what it belongs to —
+            how often to re-ask is a property of the window being looked at.
+            
+            ALWAYS SHOWN, including on a range it cannot act on. It was briefly hidden on a
+            historical range on the grounds that a timer over a finished record does nothing,
+            which was wrong twice over: the toolbar changed shape as you stepped through dates,
+            and the setting could then only be chosen while already looking at today — exactly
+            when you least want to go hunting for it.
+          */}
+          <div
+            className="flex items-center gap-1.5 ml-auto"
+            title="How often to re-ask while the market is open and this range reaches today. A settled day is never re-asked."
+          >
+            <span className="hidden sm:inline text-[10px] uppercase tracking-[0.09em] text-muted">
+              Live
+            </span>
+            <Segmented value={autoSec} options={REFRESH} onChange={setAutoSec} size="sm" />
+            <IconButton onClick={() => void load()} disabled={busy} title="Re-ask now">↻</IconButton>
           </div>
         </div>
-        <p className="text-[11px] text-muted mt-3">
-          {from === to ? from : `${from} → ${to}`}
-          {view.emptyDays > 0 && (
-            <span title="Either nothing qualified, or the scanner was not running. The record cannot tell these apart.">
-              {` · ${plural(view.emptyDays, "weekday")} with no record`}
-            </span>
-          )}
-        </p>
-      </Panel>
+      </div>
 
-      {error && (
-        <Panel><p className="text-bear text-sm">{error}</p></Panel>
+      {/* ------------------------------------------------------------------ the alerts --- */}
+      {error && <Notice tone="bad">{error}</Notice>}
+
+      {!view.config.enabled && (
+        <Notice tone="bad">
+          The journal is switched off — set <code>JOURNAL=on</code> in <code>api/.env</code>. Nothing
+          new is being recorded while it stays off.
+        </Notice>
       )}
 
       {unsettled > 0 && (
-        <Panel>
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm">
-              <span className="text-accent font-medium">{plural(unsettled, "trade")}</span>{" "}
-              {unsettled === 1 ? "has" : "have"} no settled exit yet. The recording machine settles
-              from {sessionClock(view.config.squareOffMin)}; if it was shut down before that, finish
-              the day from here.
-            </p>
+        <Notice
+          action={
             <button
               onClick={() => void settle()}
               disabled={settling}
-              className="ml-auto px-3 py-1.5 rounded-lg bg-accent text-white text-[12.5px] font-medium disabled:opacity-50"
-            >{settling ? "Settling…" : "Settle now"}</button>
-          </div>
-          {settleNote && <p className="text-[11.5px] text-muted mt-2">{settleNote}</p>}
-        </Panel>
+              className="px-3.5 py-2 rounded-xl bg-accent text-white text-[12.5px] font-semibold
+                         hover:brightness-110 disabled:opacity-50 transition"
+            >
+              {settling ? "Settling…" : "Settle now"}
+            </button>
+          }
+        >
+          <span className="text-accent font-medium">{plural(unsettled, "trade")}</span>{" "}
+          {unsettled === 1 ? "has" : "have"} no settled exit yet. The recording machine settles from{" "}
+          {sessionClock(view.config.squareOffMin)}; if it was shut down before that, finish the day
+          from here.
+          {settleNote && <span className="block text-muted mt-1">{settleNote}</span>}
+        </Notice>
       )}
 
       {/* A live view that is not actually live is the one failure worth shouting about: the rows
-          look merely uneventful when in fact nothing is being priced. Says so rather than
-          leaving a column of dashes to be interpreted. */}
+          look merely uneventful when in fact nothing is being priced. */}
       {live.open > 0 && live.marked === 0 && (
-        <Panel>
-          <p className="text-sm">
-            <span className="text-amber-400 font-medium">
-              {plural(live.open, "open position")} with no live price.
-            </span>{" "}
-            <span className="text-muted">
-              The mark comes off the WebSocket feed, so this means the feed is not delivering —
-              check <code>feed.phase</code> and <code>feed.lastError</code> on{" "}
-              <code>GET /momentum/status</code>. Entries and settlement are unaffected; only the
-              running number is missing.
-            </span>
-          </p>
-        </Panel>
+        <Notice tone="warn">
+          <span className="text-amber-400 font-medium">
+            {plural(live.open, "open position")} with no live price.
+          </span>{" "}
+          The mark comes off the WebSocket feed, so this means the feed is not delivering — check{" "}
+          <code>feed.phase</code> and <code>feed.lastError</code> on{" "}
+          <code>GET /momentum/status</code>. Entries and settlement are unaffected; only the running
+          number is missing.
+        </Notice>
       )}
 
-      {/* --------------------------------------------------------------------- totals --- */}
-      <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 ${live.open > 0 ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
-        <Stat label="Trades" value={String(t.trades)} note={`${t.open} open · ${t.untracked} not priced`} />
-        <Stat label="Win rate" value={t.winRate === null ? "—" : pct(t.winRate, 0, false)} note={`${t.wins}W / ${t.losses}L`} />
-        <Stat label="Amount used" value={inr(t.amountUsed)} note="premium deployed" />
-        <Stat label="Gross P&L" value={inr(t.grossPnl, true)} cls={sign(t.grossPnl)} note="before charges" />
-        <Stat label="Charges" value={inr(-t.charges)} cls="text-bear" note={`₹${view.config.chargePerLot}/lot round trip`} />
-        <Stat label="Net P&L" value={inr(t.netPnl, true)} cls={sign(t.netPnl)} note={t.netPct === null ? "" : `${pct(t.netPct)} on capital used`} big />
-        <Stat
-          label="Best / worst"
-          value={`${inr(t.best, true)} / ${inr(t.worst, true)}`}
-          note="single trade"
+      {/* --------------------------------------------------------------------- the top --- */}
+      <Hero
+        totals={t}
+        roll={roll}
+        rangeLabel={rangeLabel}
+        live={live}
+        config={view.config}
+        right={
+          <span className="text-[10.5px] text-muted">
+            {source === "upstox" ? "priced by Upstox" : source ? `source · ${source}` : null}
+          </span>
+        }
+      />
+
+      {/* ------------------------------------------------------------------- the ratios --- */}
+      {/* Everything below the hero is an interrogation of a set of trades. With no trades there
+          is nothing to interrogate, and eight tiles of em-dashes would only make an empty day
+          look like a broken page. */}
+      {hasTrades && (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard
+          label="Average win"
+          value={inr(roll.avgWin, true)}
+          cls="text-bull"
+          note={`${plural(t.wins, "winner")} · ${short(roll.grossProfit)} in all`}
         />
-        {/* Its own tile rather than folded into Net P&L, which is the realised number. Adding an
-            unrealised mark to a settled total would make the day's result move every fifteen
-            seconds and stop meaning what it says. */}
-        {live.open > 0 && (
-          <Stat
-            label="Open now"
-            value={live.marked ? inr(live.net, true) : "—"}
-            cls={live.marked ? sign(live.net) : ""}
-            note={
-              live.marked === 0
-                ? `${live.open} open · not priced`
-                : `${live.marked}/${live.open} priced · ${pct(live.netPct)} · after charges`
-            }
-          />
-        )}
+        <StatCard
+          label="Average loss"
+          value={inr(roll.avgLoss, true)}
+          cls="text-bear"
+          note={`${plural(t.losses, "loser")} · ${short(-roll.grossLoss)} in all`}
+        />
+        <StatCard
+          label="Payoff"
+          value={roll.payoff === null ? "—" : `${roll.payoff.toFixed(2)}×`}
+          hint="Average win divided by average loss. How much a winner has to carry."
+          note={
+            roll.payoff === null
+              ? "needs a win and a loss to exist"
+              : `breakeven needs ${pct(1 / (1 + roll.payoff), 0, false)} wins`
+          }
+        />
+        <StatCard
+          label="Deepest drawdown"
+          value={roll.maxDrawdown > 0 ? inr(-roll.maxDrawdown) : "—"}
+          cls={roll.maxDrawdown > 0 ? "text-bear" : ""}
+          hint="The largest fall from a high-water mark on the trade-by-trade curve."
+          note={roll.maxDrawdownAt ? `bottomed ${pretty(roll.maxDrawdownAt)}` : "no dip in this range"}
+        />
+        <StatCard
+          label="Premium deployed"
+          value={inr(t.amountUsed)}
+          note={`across ${plural(t.trades, "position")}`}
+        />
+        <StatCard
+          label="Charges paid"
+          value={inr(-t.charges)}
+          cls="text-bear"
+          note={`₹${view.config.chargePerLot}/lot, round trip`}
+        />
+        <StatCard
+          label="Best / worst"
+          value={`${short(t.best)} / ${short(t.worst)}`}
+          note="best and worst single trade"
+        />
+        <StatCard
+          label="Average hold"
+          value={holdLabel(roll.avgHold)}
+          note={`winners ${holdLabel(roll.avgWinHold)} · losers ${holdLabel(roll.avgLossHold)}`}
+        />
       </div>
+      )}
+
+      {/* ----------------------------------------------------------------- the analysis --- */}
+      {hasTrades && (
+      <div className="grid xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] gap-4 items-start">
+        <Card
+          title="Performance"
+          sub={
+            <>
+              {rangeLabel}
+              {view.emptyDays > 0 && (
+                <span title="Either nothing qualified, or the scanner was not running. The record cannot tell these apart.">
+                  {` · ${plural(view.emptyDays, "weekday")} with no record`}
+                </span>
+              )}
+              {t.untracked > 0 && ` · ${t.untracked} never priced`}
+            </>
+          }
+          right={
+            lenses.length > 1
+              ? <Segmented value={shownLens} options={lenses} onChange={setLens} size="sm" />
+              : undefined
+          }
+        >
+          {roll.equity.length === 0 ? (
+            <p className="text-[12.5px] text-muted py-10 text-center">
+              Nothing has settled in this range, so there is no curve to draw yet.
+            </p>
+          ) : shownLens === "calendar" ? (
+            <CalendarGrid
+              months={months}
+              selected={oneDay ? from : undefined}
+              onPick={(d) => { setMode("day"); setAnchor(d); }}
+            />
+          ) : (
+            <EChart
+              option={
+                shownLens === "curve" ? equityOption(roll.equity)
+                  : shownLens === "day" ? dailyOption(roll.daily)
+                    : tradeOption(roll.equity)
+              }
+              height="clamp(240px, 38vh, 420px)"
+            />
+          )}
+
+          {/* The run of days, said in words. It is the part of the curve that a shape cannot
+              carry — a green fortnight and a green month look identical at this size. */}
+          {roll.daily.length > 1 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted mt-3 pt-3 border-t border-border">
+              <span>
+                <span className="text-bull font-semibold tabular-nums">{roll.greenDays}</span> green
+                {" · "}
+                <span className="text-bear font-semibold tabular-nums">{roll.redDays}</span> red
+                {" sessions"}
+              </span>
+              <span title="consecutive winning and losing trades, not days">
+                longest trade run{" "}
+                <span className="text-bull font-semibold tabular-nums">{roll.winStreak}W</span>
+                {" / "}
+                <span className="text-bear font-semibold tabular-nums">{roll.lossStreak}L</span>
+              </span>
+              {roll.currentStreak.dir !== 0 && (
+                <span>
+                  ends on{" "}
+                  <span className={`font-semibold tabular-nums ${roll.currentStreak.dir === 1 ? "text-bull" : "text-bear"}`}>
+                    {roll.currentStreak.n}{roll.currentStreak.dir === 1 ? "W" : "L"}
+                  </span>
+                </span>
+              )}
+              {roll.bestDay && roll.worstDay && (
+                <span className="tabular-nums">
+                  best day <span className="text-bull">{inr(roll.bestDay.net, true)}</span>
+                  {" · worst "}
+                  <span className="text-bear">{inr(roll.worstDay.net, true)}</span>
+                </span>
+              )}
+              {roll.avgMfe !== null && (
+                <span title="the average best and worst each position showed while it was open">
+                  average trade saw <span className="text-bull">{pct(roll.avgMfe)}</span>
+                  {" / "}<span className="text-bear">{pct(roll.avgMae)}</span>
+                </span>
+              )}
+            </div>
+          )}
+        </Card>
+
+        <div className="space-y-4">
+          <Card
+            title="Edge by channel"
+            sub="Click one to filter the whole page"
+            right={
+              channel !== "all" ? (
+                <button
+                  onClick={() => setChannel("all")}
+                  className="text-[11px] text-accent hover:underline"
+                >
+                  clear
+                </button>
+              ) : undefined
+            }
+          >
+            <ChannelEdge rows={t.byChannel} active={channel} onPick={setChannel} />
+          </Card>
+
+          <Card title="How they ended" sub="Every closed position, by the exit that took it">
+            <ExitMix exits={roll.exits} />
+          </Card>
+
+          <Card title="Win rate">
+            <div className="flex items-end gap-3">
+              <div className={`text-[28px] font-extrabold tabular-nums leading-none ${
+                t.winRate === null ? "text-muted" : t.winRate >= 0.5 ? "text-bull" : "text-white"
+              }`}>
+                {t.winRate === null ? "—" : pct(t.winRate, 1, false)}
+              </div>
+              <div className="text-[11.5px] text-muted mb-0.5">
+                <span className="text-bull font-semibold">{t.wins}W</span>
+                {" / "}
+                <span className="text-bear font-semibold">{t.losses}L</span>
+              </div>
+            </div>
+            <WinBar wins={t.wins} losses={t.losses} />
+            {roll.payoff !== null && (
+              <p className="text-[11px] text-muted mt-2.5 leading-relaxed">
+                A losing majority is not a losing strategy — at a payoff of{" "}
+                {roll.payoff.toFixed(2)}× this set only needs{" "}
+                {pct(1 / (1 + roll.payoff), 0, false)} of them to break even.
+              </p>
+            )}
+          </Card>
+        </div>
+      </div>
+      )}
 
       {/* What the tighter exits would have produced on the same prices. Here rather than in a
           document, because the argument for the wide stop is only convincing next to the
           alternative on the reader's own trades. */}
       {t.shadow.some((s) => s.trades > 0) && (
-        <Panel title="The same trades on a different exit">
-          <div className="flex flex-wrap gap-3">
-            <ShadowCard
-              name={`+${Math.round(100 * view.config.tpPct)}/−${Math.round(100 * view.config.slPct)}`}
-              netPnl={t.netPnl} wins={t.wins} trades={t.closed} active
-            />
-            {t.shadow.filter((s) => s.trades > 0).map((s) => (
-              <ShadowCard key={s.name} name={s.name} netPnl={s.netPnl} wins={s.wins} trades={s.trades} />
-            ))}
-          </div>
-          <p className="text-[11px] text-muted mt-3">
-            Each alternative is graded on the same candle path, with the stop winning any minute that
-            could have gone either way. Charges are deducted from all of them equally.
-          </p>
-        </Panel>
+        <Card
+          title="The same trades on a different exit"
+          sub={`Every rule graded on the same candle path, over ${plural(t.closed, "closed trade")}`}
+        >
+          <ShadowLab totals={t} config={view.config} />
+        </Card>
       )}
+
+      {/*
+        The same question asked of any rule, not just the six the API precomputes. Sits after the
+        fixed comparison because that one is free and this one costs a walk of the archive — read
+        the shadows first, and come here when they raise a question.
+
+        NOT gated on the range having trades, unlike everything above it. This panel grades the
+        WHOLE archive by default, so it is at its most useful on exactly the screen that has
+        nothing else on it: a blank Monday morning before the first alert has fired.
+      */}
+      <ExitLab
+        config={view.config}
+        from={from}
+        to={to}
+        channel={channel === "all" ? null : channel}
+      />
 
       {/* ----------------------------------------------------------------------- days --- */}
       {view.days.length === 0 ? (
-        <Panel>
-          <p className="text-sm text-muted">
-            No trades in this range. Either no alert fired, or the channels were off — check{" "}
-            <code>GET /momentum/status</code> for <code>displacementAlerts.windowOpen</code>.
-          </p>
-        </Panel>
+        <Card>
+          <div className="py-10 text-center">
+            <p className="text-[14px] font-medium">No trades in this range.</p>
+            <p className="text-[12px] text-muted mt-1.5 max-w-md mx-auto leading-relaxed">
+              Either no alert fired, or the channels were off — check{" "}
+              <code>GET /momentum/status</code> for <code>displacementAlerts.windowOpen</code>.
+              Nothing is backfilled: a day the scanner was not running is a day with no trades.
+            </p>
+          </div>
+        </Card>
       ) : (
-        view.days.map((d) => (
-          <TradeTable
-            key={d.day} day={d.day} trades={d.trades} totals={d.totals}
-            chargePerLot={view.config.chargePerLot} nowMs={nowMs} onEdit={setEditing}
-            onExit={(t) => setExitingId(t.id)}
-          />
-        ))
+        <div className="space-y-3">
+          {view.days.length > 1 && (
+            <div className="flex items-center gap-3 pt-1">
+              <h2 className="text-[13px] font-semibold tracking-tight">Positions</h2>
+              <span className="text-[11px] text-muted">
+                {plural(view.days.length, "session")} · {plural(t.trades, "trade")}
+              </span>
+              <button
+                onClick={() =>
+                  setOpenDays(Object.fromEntries(view.days.map((d) => [d.day, !allOpen])))
+                }
+                className="ml-auto text-[11.5px] text-accent hover:underline"
+              >
+                {allOpen ? "Collapse all" : "Expand all"}
+              </button>
+            </div>
+          )}
+          {view.days.map((d) => (
+            <DaySection
+              key={d.day} day={d.day} trades={d.trades} totals={d.totals}
+              config={view.config} nowMs={nowMs} onEdit={setEditing}
+              onExit={(row) => setExitingId(row.id)}
+              open={isOpen(d.day)}
+              onToggle={() => setOpenDays((m) => ({ ...m, [d.day]: !isOpen(d.day) }))}
+            />
+          ))}
+        </div>
       )}
 
       {editing && (
@@ -436,28 +808,27 @@ export default function TradeJournalClient({
           onExited={() => { setExitingId(null); void load(); }}
         />
       )}
-    </main>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------------- pieces ----- */
 
-
 /**
  * Where the record lives, and whether the far half of it is answering.
  *
- * A badge rather than a line of prose because it is checked at a glance and only matters when it is
- * wrong. Clicking it runs the store probe — the same steps `npm run check-neon` runs — so a red
+ * A badge rather than a line of prose because it is checked at a glance and only matters when it
+ * is wrong. Clicking it runs the store probe — the same steps `npm run check-neon` runs — so a red
  * badge can be diagnosed here instead of in a terminal.
  */
 function StoreBadge({ sync }: { sync: JournalView["sync"] }) {
   const [probe, setProbe] = useState<JournalSyncProbe | null>(null);
   const [checking, setChecking] = useState(false);
   const { text, tone } = syncLabel(sync);
-  const ring = tone === "good" ? "border-emerald-800 text-bull"
-    : tone === "warn" ? "border-amber-800 text-amber-400"
-      : tone === "bad" ? "border-red-900 text-bear"
-        : "border-border text-muted";
+  const ring = tone === "good" ? "border-bull/30 text-bull bg-bull/[0.07]"
+    : tone === "warn" ? "border-amber-500/30 text-amber-400 bg-amber-500/[0.07]"
+      : tone === "bad" ? "border-bear/30 text-bear bg-bear/[0.07]"
+        : "border-border text-muted bg-black/20";
 
   const check = async () => {
     setChecking(true);
@@ -466,7 +837,11 @@ function StoreBadge({ sync }: { sync: JournalView["sync"] }) {
       const j = await res.json();
       setProbe((j?.data ?? { configured: false, steps: [] }) as JournalSyncProbe);
     } catch (e) {
-      setProbe({ configured: true, ok: false, steps: [{ step: "reach the API", ok: false, detail: String((e as Error).message) }] });
+      setProbe({
+        configured: true,
+        ok: false,
+        steps: [{ step: "reach the API", ok: false, detail: String((e as Error).message) }],
+      });
     } finally {
       setChecking(false);
     }
@@ -476,14 +851,15 @@ function StoreBadge({ sync }: { sync: JournalView["sync"] }) {
     <div className="relative">
       <button
         onClick={() => (probe ? setProbe(null) : void check())}
-        className={`text-[11px] px-2.5 py-1 rounded-full border ${ring} hover:bg-chip`}
+        className={`text-[10.5px] px-2.5 py-1 rounded-full border transition-colors hover:brightness-125 ${ring}`}
         title={sync.lastError ?? "Check the shared store"}
       >
         {checking ? "checking…" : text}
       </button>
       {probe && (
         <div
-          className="absolute right-0 mt-2 z-40 w-[330px] panel p-3.5 text-left"
+          className="absolute right-0 mt-2 z-40 w-[330px] rounded-2xl border border-border bg-panel
+                     shadow-[0_24px_60px_-20px_rgba(0,0,0,.9)] p-3.5 text-left"
           onMouseLeave={() => setProbe(null)}
         >
           {!probe.configured ? (
@@ -499,7 +875,9 @@ function StoreBadge({ sync }: { sync: JournalView["sync"] }) {
                   <li key={st.step} className="text-[12px] flex gap-2">
                     <span className={st.ok ? "text-bull" : "text-bear"}>{st.ok ? "ok" : "fail"}</span>
                     <span className="text-white">{st.step}</span>
-                    {st.detail && <span className="text-muted truncate" title={st.detail}>{st.detail}</span>}
+                    {st.detail && (
+                      <span className="text-muted truncate" title={st.detail}>{st.detail}</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -514,552 +892,5 @@ function StoreBadge({ sync }: { sync: JournalView["sync"] }) {
         </div>
       )}
     </div>
-  );
-}
-
-function Stat({ label, value, note, cls = "", big = false }: {
-  label: string; value: string; note?: string; cls?: string; big?: boolean;
-}) {
-  return (
-    <div className={`panel p-3 ${big ? "ring-1 ring-border" : ""}`}>
-      <div className="text-[10.5px] uppercase tracking-wider text-muted">{label}</div>
-      <div className={`${big ? "text-[22px]" : "text-[19px]"} font-bold tabular-nums mt-1 ${cls}`}>{value}</div>
-      {note && <div className="text-[11px] text-muted mt-0.5 truncate" title={note}>{note}</div>}
-    </div>
-  );
-}
-
-function ShadowCard({ name, netPnl, wins, trades, active = false }: {
-  name: string; netPnl: number; wins: number; trades: number; active?: boolean;
-}) {
-  return (
-    <div className={`rounded-xl border px-3.5 py-2.5 ${active ? "border-accent bg-accent/10" : "border-border bg-chip"}`}>
-      <div className="text-[11px] text-muted">
-        {name}{active && <span className="text-accent ml-1.5">in use</span>}
-      </div>
-      <div className={`text-[17px] font-bold tabular-nums ${sign(netPnl)}`}>{inr(netPnl, true)}</div>
-      <div className="text-[10.5px] text-muted">{trades ? `${wins}/${trades} won` : "—"}</div>
-    </div>
-  );
-}
-
-function TradeTable({ day, trades, totals, chargePerLot, nowMs, onEdit, onExit }: {
-  day: string; trades: JournalTrade[]; totals: JournalDayTotals; chargePerLot: number;
-  /** 0 when the page is not polling — the "12s ago" line is hidden rather than frozen. */
-  nowMs: number;
-  onEdit: (t: JournalTrade) => void;
-  /** Open the confirmation dialog on this row. Selling is the dialog's job, not the table's. */
-  onExit: (t: JournalTrade) => void;
-}) {
-  // Every money column asks the same question of a row: is it closed, or is it open with a
-  // price on it? Answered once here so the four of them cannot disagree.
-  const liveFor = (r: JournalTrade) => liveOf(r, chargePerLot);
-
-  // Live rows sort with the closed ones instead of sinking to the bottom on a null.
-  const dayNet = totals.netPnl + trades.reduce((n, r) => n + (liveFor(r)?.net ?? 0), 0);
-  const anyLive = trades.some((r) => liveFor(r) !== null);
-
-  const cols: Col<JournalTrade>[] = [
-    {
-      h: "Symbol",
-      val: (r) => r.symbol,
-      render: (r) => (
-        <div className="min-w-[112px]">
-          <div className="font-semibold flex items-center gap-1.5">
-            {r.symbol}
-            <span className={r.direction === 1 ? "text-bull" : "text-bear"}>
-              {r.direction === 1 ? "▲" : "▼"}
-            </span>
-          </div>
-          <div className="text-[11px] text-muted">{CHANNEL_LABEL[r.channel]}</div>
-        </div>
-      ),
-    },
-    {
-      h: "Contract",
-      val: (r) => r.contract?.label ?? "",
-      render: (r) => (
-        <div className="min-w-[104px]">
-          <div className="tabular-nums">{r.contract?.label ?? <span className="text-muted">no chain</span>}</div>
-          <div className="text-[11px] text-muted">
-            {r.contract ? `${r.lots} lot × ${r.contract.lotSize}` : "—"}
-          </div>
-        </div>
-      ),
-    },
-    {
-      h: "Bought",
-      val: (r) => r.entry.minute,
-      render: (r) => (
-        <div className="min-w-[104px] tabular-nums">
-          <div>{prem(r.entry.premium)}</div>
-          <div className="text-[11px] text-muted">
-            {sessionClock(r.entry.minute)}
-            {r.entry.source === "manual" && <span className="text-accent ml-1">·you</span>}
-          </div>
-        </div>
-      ),
-    },
-    {
-      h: "Sold",
-      val: (r) => r.exit?.minute ?? 9_999,
-      render: (r) => {
-        if (!r.exit) {
-          const l = liveFor(r);
-          return (
-            <div className="min-w-[104px] tabular-nums">
-              <div className={sign(l?.pct)}>{l ? prem(l.premium) : "—"}</div>
-              <div className="text-[11px] text-muted">
-                {l ? (
-                  <>
-                    <span className={sign(l.pct)}>{pct(l.pct)}</span>
-                    {nowMs > 0 && <span className="ml-1 opacity-70">{ago(l.at, nowMs)}</span>}
-                  </>
-                ) : (
-                  <span className="text-accent">open · no price</span>
-                )}
-              </div>
-            </div>
-          );
-        }
-        return (
-          <div className="min-w-[104px] tabular-nums">
-            <div>{r.exit.reason === "untracked" ? "—" : prem(r.exit.premium)}</div>
-            <div className="text-[11px] text-muted">
-              {r.exit.reason === "untracked" ? "—" : sessionClock(r.exit.minute)}
-              {r.exit.source === "manual" && <span className="text-accent ml-1">·you</span>}
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      h: "Outcome",
-      val: (r) => (r.exit ? r.exit.reason : "open"),
-      render: (r) => {
-        if (!r.exit) {
-          const l = liveFor(r);
-          // Green or red while it is priced, so the badge column alone reads as a scoreboard.
-          const cls = !l ? "border-accent text-accent"
-            : l.net > 0 ? "border-emerald-800 text-bull"
-              : l.net < 0 ? "border-red-900 text-bear"
-                : "border-border text-muted";
-          return (
-            <span className={`text-[11px] px-2 py-1 rounded-full border whitespace-nowrap ${cls}`}>
-              OPEN
-            </span>
-          );
-        }
-        const cls =
-          r.exit.reason === "target" ? "border-emerald-800 text-bull"
-            : r.exit.reason === "stop" ? "border-red-900 text-bear"
-              : r.exit.reason === "untracked" ? "border-border text-muted"
-                : "border-border text-white";
-        return (
-          <span className={`text-[11px] px-2 py-1 rounded-full border whitespace-nowrap ${cls}`}>
-            {EXIT_LABEL[r.exit.reason]}
-          </span>
-        );
-      },
-    },
-    { h: "Used", val: (r) => r.amountUsed ?? 0, render: (r) => <span className="tabular-nums">{inr(r.amountUsed)}</span> },
-    {
-      h: "Gross",
-      val: (r) => r.grossPnl ?? liveFor(r)?.gross ?? 0,
-      render: (r) => {
-        const g = r.grossPnl ?? liveFor(r)?.gross ?? null;
-        return <span className={`tabular-nums ${sign(g)}`}>{inr(g, true)}</span>;
-      },
-    },
-    {
-      h: "Charges",
-      val: (r) => r.charges ?? liveFor(r)?.charges ?? 0,
-      render: (r) => {
-        // The full round trip on an open row too: it is what closing at this mark would cost,
-        // and a net that quietly omits it is the kind of number that looks better than it is.
-        const c = r.charges ?? liveFor(r)?.charges ?? null;
-        return <span className="tabular-nums text-muted">{c === null ? "—" : inr(-c)}</span>;
-      },
-    },
-    {
-      h: "Net",
-      val: (r) => r.netPnl ?? liveFor(r)?.net ?? 0,
-      render: (r) => {
-        const l = liveFor(r);
-        const net = r.netPnl ?? l?.net ?? null;
-        const p = r.netPct ?? l?.netPct ?? null;
-        return (
-          <div className="min-w-[86px] tabular-nums">
-            <div className={`font-semibold ${sign(net)}`}>{inr(net, true)}</div>
-            <div className={`text-[11px] ${sign(p)}`}>
-              {pct(p)}
-              {/* Marked, not booked. The row has to say which it is or the two become one
-                  number and the day's result stops being trustworthy. */}
-              {l && <span className="text-accent ml-1 not-italic">live</span>}
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      h: "Best / worst it saw",
-      val: (r) => r.mfePct ?? 0,
-      render: (r) => {
-        // How much of the trade these two numbers actually cover. A row whose marking started
-        // hours after entry has a blind window at the front, and the honest thing is to say so
-        // on the row rather than let two confident percentages imply the whole day.
-        const from = excursionFrom(r);
-        return (
-          <div className="min-w-[132px] tabular-nums text-[11.5px]">
-            <div className={from === null ? "" : "opacity-70"}>
-              <span className="text-bull">{pct(r.mfePct)}</span>
-              <span className="text-muted mx-1">/</span>
-              <span className="text-bear">{pct(r.maePct)}</span>
-            </div>
-            {/* The clock times, when the row carries them. A dash beats a wrong minute: an
-                excursion of 0 never happened, so it has no moment to name. */}
-            {(r.mfeMinute != null || r.maeMinute != null) && (
-              <div className="text-[10.5px] text-muted">
-                {sessionClock(r.mfeMinute)}
-                <span className="mx-1">/</span>
-                {sessionClock(r.maeMinute)}
-              </div>
-            )}
-            {from !== null && (
-              <div
-                className="text-[10.5px] text-amber-400/90"
-                title={
-                  `Not watched from entry. This row was first priced at ${sessionClock(from)}, so ` +
-                  `${sessionClock(r.entry.minute)}–${sessionClock(from)} is missing from both figures. ` +
-                  "Settling the day re-reads the contract's own candles and fills the gap in."
-                }
-              >
-                only since {sessionClock(from)}
-              </div>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      h: "",
-      render: (r) => (
-        <div className="flex items-center gap-1.5">
-          {/* Only a position that is actually running can be sold. A closed row has no exit to
-              take, and offering the button there would be an action that can only fail. */}
-          {r.status === "open" && !r.exit && (
-            <button
-              onClick={() => onExit(r)}
-              className="text-[11px] px-2 py-1 rounded-lg border border-border text-muted hover:border-bear hover:bg-bear/10 hover:text-bear whitespace-nowrap"
-              title="Close this position at the live bid. Asks for confirmation first."
-            >
-              Exit
-            </button>
-          )}
-          <button
-            onClick={() => onEdit(r)}
-            className="text-[11px] px-2 py-1 rounded-lg border border-border text-muted hover:bg-chip hover:text-white whitespace-nowrap"
-            title="Replace these prices with your actual fill"
-          >
-            {r.edited ? "edited" : "my fill"}
-          </button>
-        </div>
-      ),
-    },
-  ];
-
-  const dow = new Date(`${day}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short" });
-
-  return (
-    <TableCard
-      id={`journal-${day}`}
-      title={`${day} · ${dow}`}
-      right={
-        <div className="flex items-center gap-3 text-[12px] tabular-nums">
-          <span className="text-muted">{plural(totals.trades, "trade")}</span>
-          {totals.winRate !== null && <span className="text-muted">{pct(totals.winRate, 0, false)} won</span>}
-          {/* Closed and open shown apart. One combined figure would move on every tick and
-              still be labelled as the day's result. */}
-          <span className={`font-semibold ${sign(totals.netPnl)}`} title="booked">
-            {inr(totals.netPnl, true)}
-          </span>
-          {anyLive && (
-            <span className={`font-semibold ${sign(dayNet)}`} title="including open positions at their current mark">
-              {inr(dayNet, true)} <span className="text-accent font-normal">live</span>
-            </span>
-          )}
-        </div>
-      }
-    >
-      <DataTable cols={cols} rows={trades} rowKey={(r) => r.id} height={420} pin={1} />
-    </TableCard>
-  );
-}
-
-/* ------------------------------------------------------------------ the manual exit --- */
-
-/**
- * Confirm selling one open position, at whatever the feed is bidding.
- *
- * IT ASKS BEFORE IT SELLS, and that is the whole reason this is a dialog. Every other control on
- * this page is reversible or read-only; this one ends a live position while the market is open,
- * from a row in a table that re-sorts itself every thirty seconds. What makes a dialog the right
- * shape rather than merely a safer one is that a confirmation is only worth asking for if it
- * shows you something the button could not: the price, and the money that price books.
- *
- * THE NUMBERS KEEP MOVING WHILE IT IS OPEN, because the page is still polling and the parent
- * resolves this row fresh on every render. A frozen quote would be the one dishonest thing a
- * confirmation could do — agreeing to a figure that stopped being true while you read it.
- *
- * AND THE FIGURE IS STILL NOT THE FILL. The server prices the sale from the feed at the instant
- * the request lands, which is a moment later and a different tick. It is said plainly below
- * rather than left to be discovered from a row that closed a rupee away from what was quoted.
- */
-function ExitDialog({ trade, chargePerLot, onClose, onExited }: {
-  trade: JournalTrade; chargePerLot: number; onClose: () => void; onExited: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const live = liveOf(trade, chargePerLot);
-  // The row can close underneath an open dialog — the target or the stop can fire on the very
-  // tick you are reading. Better to say so than to let the confirm fail with "already closed".
-  const gone = trade.status !== "open" || trade.exit !== null;
-
-  const go = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/momentum/journal/${encodeURIComponent(trade.id)}/exit`, {
-        method: "POST",
-      });
-      const j = await res.json();
-      // The upstream refusals are specific and actionable — "already closed" and "no price in the
-      // last 120s" want different things from you — so the message is shown as it arrived.
-      if (!res.ok) throw new Error(j?.error ?? `exit failed (${res.status})`);
-      onExited();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="panel p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-[16px] font-semibold">
-          Close {trade.symbol} {trade.contract?.label ?? ""}?
-        </h2>
-        <p className="text-[11.5px] text-muted mt-1">
-          {trade.day} · {CHANNEL_LABEL[trade.channel]} · bought {prem(trade.entry.premium)} at{" "}
-          {sessionClock(trade.entry.minute)} · {trade.lots} lot × {trade.contract?.lotSize ?? "—"}
-        </p>
-
-        {gone ? (
-          <p className="text-amber-400 text-[13px] mt-4">
-            This position has already closed{trade.exit ? ` — ${EXIT_LABEL[trade.exit.reason].toLowerCase()}` : ""}.
-            Nothing left to sell.
-          </p>
-        ) : (
-          <>
-            <div className="rounded-xl border border-border bg-chip mt-4 divide-y divide-border">
-              <Line label="Selling at" value={live ? prem(live.premium) : "—"} note="the bid, live" strong />
-              <Line label="Gross" value={inr(live?.gross ?? null, true)} cls={sign(live?.gross)} />
-              <Line label="Charges" value={live ? inr(-live.charges) : "—"} cls="text-muted" note="round trip" />
-              <Line
-                label="Net"
-                value={inr(live?.net ?? null, true)}
-                note={live ? pct(live.netPct) : undefined}
-                cls={sign(live?.net)}
-                strong
-              />
-            </div>
-
-            {!live && (
-              <p className="text-amber-400 text-[11.5px] mt-3">
-                The feed has no price on this contract right now, so there is nothing to quote. The
-                exit will be refused unless a print arrives — use <span className="font-medium">my fill</span> to
-                record the price you actually got.
-              </p>
-            )}
-
-            <p className="text-[11.5px] text-muted mt-3">
-              Priced from the feed when you confirm, so the fill may differ from the figure above by
-              a tick. Recorded as <span className="text-white">your</span> exit — the nightly
-              settlement will not overwrite it, and{" "}
-              <span className="text-white">Revert to settled</span> undoes it. Nothing is sent to
-              your broker.
-            </p>
-          </>
-        )}
-
-        {err && <p className="text-bear text-[12px] mt-3">{err}</p>}
-
-        <div className="flex items-center gap-2 mt-5">
-          {!gone && (
-            <button
-              onClick={() => void go()}
-              disabled={busy}
-              className="px-3.5 py-2 rounded-lg bg-bear text-white text-[13px] font-medium disabled:opacity-50"
-            >
-              {busy ? "Selling…" : live ? `Sell at ${prem(live.premium)}` : "Sell at the bid"}
-            </button>
-          )}
-          <button onClick={onClose} className="ml-auto px-3 py-2 text-[13px] text-muted hover:text-white">
-            {gone ? "Close" : "Cancel"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** One row of the money box. Kept local — nothing else on the page lays out a label/value pair. */
-function Line({ label, value, note, cls = "", strong = false }: {
-  label: string; value: string; note?: string; cls?: string; strong?: boolean;
-}) {
-  return (
-    <div className="flex items-baseline justify-between px-3.5 py-2">
-      <span className="text-[11.5px] text-muted">{label}</span>
-      <span className="text-right">
-        <span className={`tabular-nums ${strong ? "text-[15px] font-semibold" : "text-[13px]"} ${cls}`}>
-          {value}
-        </span>
-        {note && <span className="text-[10.5px] text-muted ml-1.5">{note}</span>}
-      </span>
-    </div>
-  );
-}
-
-type JournalDayTotals = JournalView["totals"];
-
-/* --------------------------------------------------------------------- the edit form --- */
-
-/**
- * Replace what the feed recorded with what the broker filled.
- *
- * Deliberately only four fields. A journal that asks for the whole contract note will not get
- * filled in; the two prices and the lot count are what change the money.
- */
-function EditDialog({ trade, onClose, onSaved }: {
-  trade: JournalTrade; onClose: () => void; onSaved: () => void;
-}) {
-  const [entryPremium, setEntry] = useState(String(trade.entry.premium));
-  const [exitPremium, setExit] = useState(trade.exit ? String(trade.exit.premium) : "");
-  const [lots, setLots] = useState(String(trade.lots));
-  const [note, setNote] = useState(trade.note);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const save = async (reset = false) => {
-    setSaving(true);
-    setErr(null);
-    try {
-      const body = reset
-        ? { reset: true }
-        : {
-          entryPremium: entryPremium === "" ? undefined : Number(entryPremium),
-          exitPremium: exitPremium === "" ? undefined : Number(exitPremium),
-          lots: Number(lots),
-          note,
-        };
-      const res = await fetch(`/api/momentum/journal/${encodeURIComponent(trade.id)}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error ?? `save failed (${res.status})`);
-      onSaved();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div className="panel p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-[16px] font-semibold">
-          {trade.symbol} {trade.contract?.label ?? ""}
-        </h2>
-        <p className="text-[11.5px] text-muted mt-1">
-          {trade.day} · {CHANNEL_LABEL[trade.channel]} · signalled {sessionClock(trade.entry.minute)}.
-          Saving your own prices stops the nightly settlement from overwriting this row.
-        </p>
-
-        <div className="grid grid-cols-2 gap-3 mt-4">
-          <Field label="Buy price" value={entryPremium} onChange={setEntry} />
-          <Field label="Sell price" value={exitPremium} onChange={setExit} placeholder="still open" />
-          <Field label="Lots" value={lots} onChange={setLots} />
-          <div>
-            <label className="text-[10.5px] uppercase tracking-wider text-muted">Lot size</label>
-            <div className="chip mt-1 text-muted">{trade.contract?.lotSize ?? "—"}</div>
-          </div>
-        </div>
-
-        <label className="block mt-3">
-          <span className="text-[10.5px] uppercase tracking-wider text-muted">Note</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="why you took it, or didn't"
-            className="chip w-full mt-1 bg-chip text-white placeholder:text-muted/60"
-          />
-        </label>
-
-        {err && <p className="text-bear text-[12px] mt-3">{err}</p>}
-
-        <div className="flex items-center gap-2 mt-5">
-          <button
-            onClick={() => void save()}
-            disabled={saving}
-            className="px-3.5 py-2 rounded-lg bg-accent text-white text-[13px] font-medium disabled:opacity-50"
-          >{saving ? "Saving…" : "Save my fill"}</button>
-          {trade.edited && (
-            <button
-              onClick={() => void save(true)}
-              disabled={saving}
-              className="px-3 py-2 rounded-lg border border-border text-muted text-[13px] hover:bg-chip"
-              title="Discard your prices and let the nightly settlement own this row again"
-            >Revert to settled</button>
-          )}
-          <button onClick={onClose} className="ml-auto px-3 py-2 text-[13px] text-muted hover:text-white">
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-[10.5px] uppercase tracking-wider text-muted">{label}</span>
-      <input
-        type="number"
-        step="0.05"
-        min="0"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="chip w-full mt-1 bg-chip text-white tabular-nums placeholder:text-muted/60"
-      />
-    </label>
   );
 }

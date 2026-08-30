@@ -37,7 +37,17 @@ export interface JournalShadow {
   minute: number | null;
 }
 
-export type ExitReason = "target" | "stop" | "square-off" | "manual" | "untracked";
+/**
+ * Every way a position can end, exactly as the API spells them.
+ *
+ * `checkpoint` is the ratcheted stop firing: once a trade has been up `armAtPct` the stop moves
+ * once to `lockPct`, and a trade cut there is usually a small WIN, not a loss — which is why it
+ * is its own reason and not folded into `stop`. It is written by the live `journalTick` only;
+ * `settleDay` re-derives the day from candles and records those as `stop`, so it is a reason you
+ * see intraday and rarely afterwards. Missing from this union it rendered as a blank badge.
+ */
+export type ExitReason =
+  | "target" | "stop" | "checkpoint" | "square-off" | "manual" | "untracked";
 
 export interface JournalTrade {
   id: string;
@@ -241,6 +251,13 @@ export interface JournalView {
     enabled: boolean;
     tpPct: number;
     slPct: number;
+    /**
+     * The checkpoint: once a position has been up `armAtPct`, its stop moves once to `lockPct`
+     * and never moves again. Optional because `JOURNAL_ARM_AT_PCT=0` switches it off, and a
+     * record written before it existed has neither field.
+     */
+    armAtPct?: number;
+    lockPct?: number;
     squareOffMin: number;
     chargePerLot: number;
     lots: number;
@@ -299,6 +316,9 @@ export function sessionClock(minute: number | null | undefined): string {
 export const EXIT_LABEL: Record<ExitReason, string> = {
   target: "Target",
   stop: "Stopped",
+  // Not "stopped": the checkpoint sits above the entry price, so this is a trade that gave back
+  // most of a move and still came out ahead. Calling it a stop would read as a loss.
+  checkpoint: "Locked in",
   "square-off": "Squared off",
   // Covers both ways a position ends on the operator's say-so: a price typed in from the
   // contract note, and the row's own Exit button. "Your fill" only described the first.
