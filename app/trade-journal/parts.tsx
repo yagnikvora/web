@@ -10,6 +10,7 @@
 import { Fragment, ReactNode } from "react";
 import EChart from "@/components/EChart";
 import { SymbolAvatar } from "@/components/SymbolAvatar";
+import { tvLink } from "@/lib/format";
 import {
   CHANNEL_LABEL, EXIT_LABEL, inr, JournalTotals, JournalView, pct, plural,
   type ExitReason, type JournalChannel,
@@ -663,16 +664,39 @@ export function OutcomeBadge({ reason, live }: { reason: ExitReason | null; live
   );
 }
 
-/** Symbol, its logo and its direction — the identity half of a row. */
+/**
+ * Symbol, its logo and its direction — the identity half of a row.
+ *
+ * The name opens the underlying's chart on TradingView, the same `tvLink` every other table on
+ * this platform uses, so "what was the stock doing here" is one click from the journal rather
+ * than a retyped ticker. The link is the name and the logo only: the channel line below is not
+ * part of it, and the direction arrow stays outside so the underline reads as the ticker's.
+ */
 export function SymbolBlock({ symbol, direction, channel }: {
   symbol: string; direction: 1 | -1; channel: JournalChannel;
 }) {
   return (
     <div className="flex items-center gap-2.5 min-w-[132px]">
-      <SymbolAvatar symbol={symbol} className="w-[26px] h-[26px] text-[9px] shrink-0" />
+      <a
+        href={tvLink(symbol)}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Open ${symbol} on TradingView`}
+        className="shrink-0"
+      >
+        <SymbolAvatar symbol={symbol} className="w-[26px] h-[26px] text-[9px] shrink-0" />
+      </a>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 font-semibold text-[13.5px] leading-tight">
-          <span className="truncate">{symbol}</span>
+          <a
+            href={tvLink(symbol)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Open ${symbol} on TradingView`}
+            className="truncate hover:text-accent hover:underline transition-colors"
+          >
+            {symbol}
+          </a>
           <span className={`text-[10px] ${direction === 1 ? "text-bull" : "text-bear"}`}>
             {direction === 1 ? "▲" : "▼"}
           </span>
