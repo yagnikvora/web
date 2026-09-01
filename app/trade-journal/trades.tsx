@@ -294,6 +294,39 @@ export function DaySection({ day, trades, totals, config, nowMs, open, onToggle,
       },
     },
     {
+      // WHAT THE EXIT RULE ACTUALLY CONTRIBUTED. Every other column describes the trade that was
+      // taken; this one describes the trade that was not, and the gap between them is the whole
+      // value of the target, the stop and the checkpoint. A row squared off at 15:15 is its own
+      // counterfactual, so it reads a flat "—" rather than a zero nobody needs to compare.
+      h: "At 3:15",
+      val: (r) => r.dayEnd?.netPnl ?? 0,
+      render: (r) => {
+        const d = r.dayEnd;
+        if (!d) return <span className="text-[12px] text-muted">—</span>;
+        const held = r.netPnl === null ? null : d.netPnl - r.netPnl;
+        const flat = held !== null && Math.abs(held) < 1;
+        return (
+          <div
+            className="min-w-[86px] tabular-nums text-right"
+            title={
+              `The contract closed the session at ${prem(d.premium)} — ${pct(d.pct)} on the entry, `
+              + `${inr(d.netPnl, true)} after the same charges.`
+              + (held === null || flat
+                ? " This position ran to the square-off, so that is what it booked."
+                : held > 0
+                  ? ` Getting out early cost ${inr(Math.abs(held))} against simply holding.`
+                  : ` Getting out early saved ${inr(Math.abs(held))} against simply holding.`)
+            }
+          >
+            <div className={`text-[12.5px] ${sign(d.netPnl)}`}>{inr(d.netPnl, true)}</div>
+            <div className={`text-[10.5px] ${flat ? "text-muted" : sign(held === null ? null : -held)}`}>
+              {held === null || flat ? "held to close" : `${held > 0 ? "left" : "saved"} ${inr(Math.abs(held))}`}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
       h: "",
       render: (r) => (
         <div className="flex items-center gap-1.5 justify-end">
@@ -417,6 +450,18 @@ function TradeCard({ t, config, nowMs, onEdit, onExit }: {
         <span className={stop.armed ? "text-bull" : "opacity-70"}>
           stop {prem(stop.premium)} · {pct(stop.pct, 0)}{stop.armed ? " locked" : ""}
         </span>
+        {/* The desktop's "At 3:15", in the phone's own idiom: what the rule contributed, which is
+            the only part of the counterfactual worth a line on a 390px screen. */}
+        {t.dayEnd && (() => {
+          const held = t.netPnl === null ? null : t.dayEnd!.netPnl - t.netPnl;
+          const flat = held !== null && Math.abs(held) < 1;
+          return (
+            <span className={held === null || flat ? "opacity-70" : sign(-held)}>
+              at 3:15 {inr(t.dayEnd!.netPnl, true)}
+              {held !== null && !flat && ` · ${held > 0 ? "left" : "saved"} ${inr(Math.abs(held))}`}
+            </span>
+          );
+        })()}
       </div>
 
       {t.note && <p className="text-[11.5px] text-white/70 mt-2 italic">{t.note}</p>}

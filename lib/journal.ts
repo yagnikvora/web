@@ -69,6 +69,9 @@ export interface JournalTrade {
   /** Session minute the live marking of this row began. Null means the excursions cover the
    *  whole trade — see the API's `markedFrom`. */
   markedFrom?: number | null;
+  /** What holding to the 15:15 square-off would have paid, charged like the real exit. Null on a
+   *  live row and on one whose contract had no candles — see the API's `dayEnd`. */
+  dayEnd?: { premium: number; pct: number; netPnl: number } | null;
   spreadPctAtEntry: number | null;
   amountUsed: number | null;
   grossPnl: number | null;
