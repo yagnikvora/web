@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BRAND, VIEWER, moduleForPath, moduleGloss, moduleLabel } from "@/lib/brand";
+import AlertSettings from "@/components/AlertSettings";
 
 // Routes, grouped as the nav shows them. Labels come from lib/brand.ts, and the paths are
 // deliberately NOT derived from them: a route is what people bookmark and what search
@@ -97,6 +98,10 @@ export default function NavBar() {
         )}
 
         <div className="ml-auto flex items-center gap-2 text-muted text-sm shrink-0">
+          {/* Before the account, not inside the phone menu: muting a channel is done in the
+              fifteen seconds after it buzzed, and a control two taps deep is one nobody reaches
+              in time. It is the same 36px target at every width for that reason. */}
+          <AlertSettings />
           <span className="hidden sm:inline">{VIEWER.name}</span>
           <span className="grid place-items-center w-8 h-8 rounded-full bg-chip border border-border text-white font-bold">
             {initial}
