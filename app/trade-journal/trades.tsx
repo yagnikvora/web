@@ -17,8 +17,9 @@ import { OutcomeBadge, PathBar, pretty, sign, SymbolBlock, weekday } from "./par
 
 /* ------------------------------------------------------------------------ the header --- */
 
-function DayHeader({ day, trades, totals, dayNet, anyLive, open, onToggle }: {
+function DayHeader({ day, trades, totals, dayNet, anyLive, balance, open, onToggle }: {
   day: string; trades: JournalTrade[]; totals: JournalDay["totals"]; dayNet: number; anyLive: boolean;
+  balance: number | null;
   open: boolean; onToggle: () => void;
 }) {
   const wins = totals.wins;
@@ -72,6 +73,19 @@ function DayHeader({ day, trades, totals, dayNet, anyLive, open, onToggle }: {
             {inr(dayNet, true)} <span className="text-accent font-normal">live</span>
           </span>
         )}
+        {/* What the account holds once this day is counted. A fixed-width column, so a month of
+            these reads down the page as one running figure. */}
+        {balance !== null && (
+          <span
+            className="min-w-[124px] text-right text-[11.5px] text-muted"
+            title={`The month's starting capital plus every net result up to and including ${pretty(day)}${
+              anyLive ? ", with open positions at their current mark" : ""
+            }. Set the starting capital from the account menu, top right.`}
+          >
+            balance{" "}
+            <span className="text-[13.5px] font-semibold text-white">{inr(balance)}</span>
+          </span>
+        )}
       </div>
     </button>
   );
@@ -87,8 +101,10 @@ function DayHeader({ day, trades, totals, dayNet, anyLive, open, onToggle }: {
  * already carries what the scroll was for: the date, the count, the win split and the money. The
  * caller decides what a range opens on; a single day opens expanded, a month opens as a list.
  */
-export function DaySection({ day, trades, totals, config, nowMs, open, onToggle, onEdit, onExit }: {
+export function DaySection({ day, trades, totals, config, nowMs, balance = null, open, onToggle, onEdit, onExit }: {
   day: string;
+  /** The account at the end of this day, or null when no starting capital is set. */
+  balance?: number | null;
   trades: JournalTrade[];
   totals: JournalDay["totals"];
   /** The whole thing rather than one figure of it: the rows need the charges AND the stop. */
@@ -362,7 +378,7 @@ export function DaySection({ day, trades, totals, config, nowMs, open, onToggle,
     <section className="rounded-2xl border border-border bg-panel overflow-hidden">
       <DayHeader
         day={day} trades={trades} totals={totals} dayNet={dayNet} anyLive={anyLive}
-        open={open} onToggle={onToggle}
+        balance={balance} open={open} onToggle={onToggle}
       />
 
       {open && (

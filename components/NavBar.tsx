@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BRAND, VIEWER, moduleForPath, moduleGloss, moduleLabel } from "@/lib/brand";
+import { BRAND, moduleForPath, moduleGloss, moduleLabel } from "@/lib/brand";
+import AccountMenu from "@/components/AccountMenu";
 import AlertSettings from "@/components/AlertSettings";
 
 // Routes, grouped as the nav shows them. Labels come from lib/brand.ts, and the paths are
@@ -23,7 +24,6 @@ const ALL = GROUPS.flatMap((g) => g.items);
 export default function NavBar() {
   const path = usePathname();
   const [open, setOpen] = useState(false);
-  const initial = VIEWER.name.trim().charAt(0).toUpperCase() || "?";
   // Matched by module rather than by exact path, so a symbol page keeps its scanner lit.
   const current = moduleForPath(path);
 
@@ -102,10 +102,7 @@ export default function NavBar() {
               fifteen seconds after it buzzed, and a control two taps deep is one nobody reaches
               in time. It is the same 36px target at every width for that reason. */}
           <AlertSettings />
-          <span className="hidden sm:inline">{VIEWER.name}</span>
-          <span className="grid place-items-center w-8 h-8 rounded-full bg-chip border border-border text-white font-bold">
-            {initial}
-          </span>
+          <AccountMenu />
 
           {/* 44px square — the smallest target that is reliably hittable with a thumb. */}
           <button

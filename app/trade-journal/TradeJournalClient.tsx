@@ -21,9 +21,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ago, CHANNEL_LABEL, inr, istToday, JournalSyncProbe, JournalTrade, JournalView, liveTotals, pct,
-  plural, rangeFor, RangeMode, sessionClock, shiftDay, syncLabel, type JournalChannel,
+  ago, CHANNEL_LABEL, inr, istToday, JournalDay, JournalSyncProbe, JournalTrade, JournalView, liveOf,
+  liveTotals, pct, plural, rangeFor, RangeMode, sessionClock, shiftDay, syncLabel, type JournalChannel,
 } from "@/lib/journal";
+import { balances, useStartingCapital } from "@/lib/capital";
 import EChart from "@/components/EChart";
 import { isMarketOpen } from "@/lib/live";
 import { calendar, holdLabel, rollup } from "./analytics";
@@ -183,6 +184,68 @@ export default function TradeJournalClient({
       setBusy(false);
     }
   }, [from, to, channel]);
+
+  /*
+   * The account balance after each day — the month's starting capital plus every net result up to
+   * and including that day. See lib/capital.ts.
+   *
+   * THE RANGE ON SCREEN IS NOT ENOUGH TO WORK IT OUT. A balance on the 13th needs the 1st to the
+   * 12th whether or not they are being looked at, and it needs every channel whatever the filter
+   * says — the account does not know which detector a trade came from. So when the view is a
+   * filtered one, or starts after the first of its month, the missing days are fetched separately
+   * as a "ledger": the same endpoint, unfiltered, from the first of the month.
+   *
+   * When the view already IS the whole month unfiltered, nothing extra is asked for.
+   */
+  const [capital] = useStartingCapital();
+  const ledgerFrom = `${from.slice(0, 7)}-01`;
+  const needLedger = capital !== null && (channel !== "all" || from > ledgerFrom);
+  const ledgerKey = `${ledgerFrom}|${to}`;
+  const [ledger, setLedger] = useState<{ key: string; days: JournalDay[] } | null>(null);
+  const ledgerAt = useRef(0);
+  /** The range the ledger is wanted for now, and the one a request is already out for. */
+  const ledgerWanted = useRef(ledgerKey);
+  ledgerWanted.current = ledgerKey;
+  const ledgerAsked = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!needLedger || ledgerAsked.current === ledgerKey) return;
+    // Re-asked when the range changes, and at most every 15s while the page polls — that is how
+    // often a mark can change, and the ledger only matters live for today's open positions.
+    if (ledger?.key === ledgerKey && Date.now() - ledgerAt.current < 15_000) return;
+    ledgerAsked.current = ledgerKey;
+    void (async () => {
+      try {
+        const qs = new URLSearchParams({ from: ledgerFrom, to });
+        const res = await fetch(`/api/momentum/journal?${qs}`, { cache: "no-store" });
+        const j = await res.json();
+        // An answer for a range the reader has since left is dropped rather than shown.
+        if (res.ok && j?.data && ledgerWanted.current === ledgerKey) {
+          ledgerAt.current = Date.now();
+          setLedger({ key: ledgerKey, days: (j.data as JournalView).days });
+        }
+      } catch {
+        // Left as it was. A balance that cannot be worked out is not shown — see `balanceOf`.
+      } finally {
+        if (ledgerAsked.current === ledgerKey) ledgerAsked.current = null;
+      }
+    })();
+    // `loadedAt` is the poll's heartbeat. `ledger` is read here, not watched, or this would loop.
+  }, [needLedger, ledgerKey, ledgerFrom, to, loadedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const balanceOf = useMemo(() => {
+    if (capital === null) return null;
+    // No figure at all until the days it depends on have arrived: a balance missing the first
+    // week of the month is a wrong number, not an approximate one.
+    if (needLedger && ledger?.key !== ledgerKey) return null;
+    const net = (d: JournalDay) =>
+      d.totals.netPnl + d.trades.reduce((n, r) => n + (liveOf(r, view.config.chargePerLot)?.net ?? 0), 0);
+    const byDay = new Map<string, number>();
+    if (needLedger) for (const d of ledger!.days) byDay.set(d.day, net(d));
+    // The view is the fresher of the two, so where it is unfiltered its days win.
+    if (channel === "all") for (const d of view.days) byDay.set(d.day, net(d));
+    return balances(capital, byDay);
+  }, [capital, needLedger, ledger, ledgerKey, channel, view]);
 
   // Skips the first run: the server already fetched exactly this range.
   const [primed, setPrimed] = useState(false);
@@ -769,6 +832,7 @@ export default function TradeJournalClient({
               <h2 className="text-[13px] font-semibold tracking-tight">Positions</h2>
               <span className="text-[11px] text-muted">
                 {plural(view.days.length, "session")} · {plural(t.trades, "trade")}
+                {capital !== null && ` · balance from ${inr(capital)} at the start of each month`}
               </span>
               <button
                 onClick={() =>
@@ -784,6 +848,7 @@ export default function TradeJournalClient({
             <DaySection
               key={d.day} day={d.day} trades={d.trades} totals={d.totals}
               config={view.config} nowMs={nowMs} onEdit={setEditing}
+              balance={balanceOf?.get(d.day) ?? null}
               onExit={(row) => setExitingId(row.id)}
               open={isOpen(d.day)}
               onToggle={() => setOpenDays((m) => ({ ...m, [d.day]: !isOpen(d.day) }))}
