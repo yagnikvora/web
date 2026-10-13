@@ -127,7 +127,7 @@ export function DaySection({ day, trades, totals, config, nowMs, balance = null,
     {
       h: "Symbol",
       val: (r) => r.symbol,
-      render: (r) => <SymbolBlock symbol={r.symbol} direction={r.direction} channel={r.channel} />,
+      render: (r) => <SymbolBlock symbol={r.symbol} direction={r.direction} channel={r.channel} readings={r.readings} />,
     },
     {
       h: "Contract",
@@ -419,7 +419,7 @@ function TradeCard({ t, config, nowMs, onEdit, onExit }: {
   return (
     <article className="px-4 py-3.5">
       <div className="flex items-start gap-3">
-        <SymbolBlock symbol={t.symbol} direction={t.direction} channel={t.channel} />
+        <SymbolBlock symbol={t.symbol} direction={t.direction} channel={t.channel} readings={t.readings} />
         <div className="ml-auto text-right tabular-nums shrink-0">
           <div className={`text-[17px] font-bold leading-tight ${sign(net)}`}>{inr(net, true)}</div>
           <div className={`text-[11px] ${sign(p)}`}>

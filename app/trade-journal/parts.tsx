@@ -665,6 +665,55 @@ export function OutcomeBadge({ reason, live }: { reason: ExitReason | null; live
 }
 
 /**
+ * Whether a row was taken on the stock's quarterly results, from the two readings the API records.
+ *
+ * Null covers three cases the row cannot tell apart on its face and need not: an ordinary day, a
+ * morning the NSE calendar could not be read, and a row written before the readings existed.
+ */
+export function resultsOf(readings?: Record<string, number | null>): "out" | "today" | null {
+  if (readings?.resultsDay !== 1) return null;
+  return readings.resultsOut === 1 ? "out" : "today";
+}
+
+/**
+ * How the stock's overnight news read when the alert fired, as the badge the row shows.
+ *
+ * Every checked row gets one, so a quiet stock can be told from one that was never looked at.
+ */
+export type NewsBadge = "positive" | "negative" | "neutral" | "none" | "unread";
+
+export function newsOf(readings?: Record<string, number | null>): NewsBadge | null {
+  // A row written before the reading existed has no key at all, and gets no badge: it was never
+  // checked, which is a different thing from being checked and found quiet.
+  if (!readings || !("newsSentiment" in readings)) return null;
+  const v = readings.newsSentiment;
+  if (v === null) return "unread";
+  if (v === 1) return "positive";
+  if (v === -1) return "negative";
+  return (readings.newsCount ?? 0) > 0 ? "neutral" : "none";
+}
+
+const NEWS_TEXT: Record<NewsBadge, string> = {
+  positive: "News +", negative: "News −", neutral: "News neutral", none: "No news", unread: "News unread",
+};
+
+const NEWS_TONE: Record<NewsBadge, string> = {
+  positive: "border-bull/25 bg-bull/15 text-bull",
+  negative: "border-bear/25 bg-bear/15 text-bear",
+  neutral: "border-white/10 bg-white/[0.04] text-muted",
+  none: "border-white/10 bg-white/[0.04] text-muted",
+  unread: "border-white/10 bg-transparent text-muted/70",
+};
+
+const NEWS_TITLE: Record<NewsBadge, (symbol: string) => string> = {
+  positive: (s) => `The overnight news on ${s} read positive when the alert fired`,
+  negative: (s) => `The overnight news on ${s} read negative when the alert fired`,
+  neutral: (s) => `${s} had fresh headlines, and none was clearly good or bad for it`,
+  none: (s) => `No headline on ${s} between the previous close and the alert`,
+  unread: (s) => `${s} had fresh headlines the model had not answered for when the alert fired`,
+};
+
+/**
  * Symbol, its logo and its direction — the identity half of a row.
  *
  * The name opens the underlying's chart on TradingView, the same `tvLink` every other table on
@@ -672,9 +721,13 @@ export function OutcomeBadge({ reason, live }: { reason: ExitReason | null; live
  * than a retyped ticker. The link is the name and the logo only: the channel line below is not
  * part of it, and the direction arrow stays outside so the underline reads as the ticker's.
  */
-export function SymbolBlock({ symbol, direction, channel }: {
+export function SymbolBlock({ symbol, direction, channel, readings }: {
   symbol: string; direction: 1 | -1; channel: JournalChannel;
+  /** The row's readings. Only the results-day pair is read here — see `resultsOf`. */
+  readings?: Record<string, number | null>;
 }) {
+  const results = resultsOf(readings);
+  const news = newsOf(readings);
   return (
     <div className="flex items-center gap-2.5 min-w-[132px]">
       <a
@@ -701,7 +754,32 @@ export function SymbolBlock({ symbol, direction, channel }: {
             {direction === 1 ? "▲" : "▼"}
           </span>
         </div>
-        <div className="text-[10.5px] text-muted truncate">{CHANNEL_LABEL[channel]}</div>
+        {/* Badges sit on the channel line, not beside the ticker: there they truncated the name. */}
+        <div className="flex items-center gap-1.5 text-[10.5px] text-muted">
+          <span className="truncate">{CHANNEL_LABEL[channel]}</span>
+          {results && (
+            <span
+              title={results === "out"
+                ? "Results day — the board met before this session, so the numbers were already out"
+                : "Results today — the board met on this day, so the numbers may not have been out at entry"}
+              className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded
+                         border border-amber-500/30 bg-amber-500/[0.12] text-amber-400 whitespace-nowrap"
+            >
+              {results === "out" ? "Results" : "Results today"}
+            </span>
+          )}
+          {news !== null && (
+            <span
+              title={NEWS_TITLE[news](symbol) + (
+                (news === "positive" && direction === -1) || (news === "negative" && direction === 1)
+                  ? " — against this trade" : "")}
+              className={`text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded border
+                          whitespace-nowrap ${NEWS_TONE[news]}`}
+            >
+              {NEWS_TEXT[news]}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
