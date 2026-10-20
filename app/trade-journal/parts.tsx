@@ -151,6 +151,87 @@ export function StatCard({ label, value, note, cls = "", hint }: {
   );
 }
 
+/* --------------------------------------------------------------------------- capital --- */
+
+/**
+ * What the account holds, as against what the trades made.
+ *
+ * The month's starting capital, the balance the day on screen opened with, and the balance now
+ * (or at that day's close). Null figures mean the starting capital is not set, or the days the
+ * balance depends on have not arrived yet — both said in words rather than as a wrong number.
+ */
+export function CapitalStrip({ capital, monthStart, day, isToday, figures }: {
+  capital: number | null;
+  /** The first of the month the day belongs to. */
+  monthStart: string;
+  day: string;
+  isToday: boolean;
+  figures: { open: number; close: number } | null;
+}) {
+  if (capital === null) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border bg-panel px-4 py-3 text-[12px] text-muted">
+        No starting capital set — open the account menu (top right) and enter what the account
+        holds on the first of the month to see the balance here.
+      </div>
+    );
+  }
+  const dayChange = figures ? figures.close - figures.open : null;
+  const monthChange = figures ? figures.close - capital : null;
+  return (
+    <section className="rounded-2xl border border-border bg-panel px-4 py-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
+        <CapitalFigure
+          label="Starting capital"
+          value={inr(capital)}
+          note={`from ${pretty(monthStart)}`}
+        />
+        <CapitalFigure
+          label={`Opened ${pretty(day)} at`}
+          value={figures ? inr(figures.open) : "…"}
+          note="after every earlier day this month"
+        />
+        <CapitalFigure
+          label={isToday ? "Capital now" : `Closed ${pretty(day)} at`}
+          value={figures ? inr(figures.close) : "…"}
+          strong
+          note={
+            dayChange === null ? "working it out…" : (
+              <>
+                <span className={sign(dayChange)}>{inr(dayChange, true)}</span> on the day
+                {isToday && " · incl. open positions"}
+              </>
+            )
+          }
+        />
+        <CapitalFigure
+          label="Month to date"
+          value={
+            monthChange === null ? "…" : (
+              <span className={sign(monthChange)}>{inr(monthChange, true)}</span>
+            )
+          }
+          note={monthChange === null ? "" : pct(monthChange / capital)}
+        />
+      </div>
+    </section>
+  );
+}
+
+function CapitalFigure({ label, value, note, strong = false }: {
+  label: string; value: ReactNode; note?: ReactNode; strong?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-[0.09em] text-muted truncate">{label}</div>
+      <div className={`tabular-nums mt-1 leading-tight ${strong ? "text-[22px] font-extrabold text-white" : "text-[17px] font-bold"}`}>
+        {value}
+      </div>
+      {note && <div className="text-[11px] text-muted mt-0.5 truncate">{note}</div>}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------------------ hero --- */
 
 /**

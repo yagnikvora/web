@@ -31,7 +31,7 @@ import { calendar, holdLabel, rollup } from "./analytics";
 import { dailyOption, equityOption, tradeOption } from "./charts";
 import { EditDialog, ExitDialog } from "./dialogs";
 import {
-  Card, CalendarGrid, ChannelEdge, ExitMix, Hero, IconButton, Notice, Segmented, ShadowLab,
+  Card, CalendarGrid, CapitalStrip, ChannelEdge, ExitMix, Hero, IconButton, Notice, Segmented, ShadowLab,
   short, StatCard, WinBar, pretty, weekday,
 } from "./parts";
 import { ExitLab } from "./ExitLab";
@@ -246,6 +246,23 @@ export default function TradeJournalClient({
     if (channel === "all") for (const d of view.days) byDay.set(d.day, net(d));
     return balances(capital, byDay);
   }, [capital, needLedger, ledger, ledgerKey, channel, view]);
+
+  /**
+   * The balance the last day on screen opened and closed with. A day with no trades still has a
+   * balance — the one the month had reached before it — so this walks back rather than looking
+   * the day up. `balances` returns its days in order.
+   */
+  const capitalFigures = useMemo(() => {
+    if (capital === null || balanceOf === null) return null;
+    let open = capital;
+    let close = capital;
+    for (const [day, bal] of Array.from(balanceOf)) {
+      if (day.slice(0, 7) !== to.slice(0, 7) || day > to) continue;
+      if (day < to) open = bal;
+      close = bal;
+    }
+    return { open, close };
+  }, [capital, balanceOf, to]);
 
   // Skips the first run: the server already fetched exactly this range.
   const [primed, setPrimed] = useState(false);
@@ -581,6 +598,14 @@ export default function TradeJournalClient({
       )}
 
       {/* --------------------------------------------------------------------- the top --- */}
+      <CapitalStrip
+        capital={capital}
+        monthStart={ledgerFrom}
+        day={to}
+        isToday={to === today}
+        figures={capitalFigures}
+      />
+
       <Hero
         totals={t}
         roll={roll}

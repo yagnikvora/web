@@ -82,9 +82,16 @@ export default function AccountMenu() {
           </header>
 
           <section className="rounded-xl border border-border bg-black/20 p-3">
-            <label htmlFor="start-capital" className="block text-[12.5px] font-semibold text-white">
-              Starting capital
-            </label>
+            <div className="flex items-baseline gap-2">
+              <label htmlFor="start-capital" className="text-[12.5px] font-semibold text-white">
+                Starting capital
+              </label>
+              <span className="ml-auto text-[11.5px] tabular-nums">
+                {capital === null
+                  ? <span className="text-muted">not set</span>
+                  : <>saved <span className="font-semibold text-white">{inr(capital)}</span></>}
+              </span>
+            </div>
             <p className="text-[10.5px] text-muted leading-snug mt-0.5">
               What the account holds on the first of each month. The Trade Journal adds every
               day&apos;s net result to it and shows the balance after each session.
