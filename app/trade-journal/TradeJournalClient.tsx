@@ -102,6 +102,8 @@ export default function TradeJournalClient({
   const [exitingId, setExitingId] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
   const [settleNote, setSettleNote] = useState<string | null>(null);
+  const [exitingAll, setExitingAll] = useState(false);
+  const [exitAllNote, setExitAllNote] = useState<string | null>(null);
   const [lens, setLens] = useState<Lens>("day");
   /**
    * Which day sections are expanded, by date.
@@ -141,6 +143,15 @@ export default function TradeJournalClient({
   // The open book at its current marks. Recomputed from `view` rather than tracked separately, so
   // there is exactly one copy of "what is open right now" and it cannot drift from the table.
   const live = useMemo(() => liveTotals(view.days, view.config.chargePerLot), [view]);
+
+  // What "Exit all" would sell: today's open rows only. An open row on an earlier day is the
+  // settlement pass's to close at its 15:15 price, not something the live bid can speak for.
+  const openToday = useMemo(() => {
+    const day = istToday();
+    return view.days
+      .filter((d) => d.day === day)
+      .reduce((n, d) => n + d.trades.filter((t) => t.status === "open" && !t.exit).length, 0);
+  }, [view]);
 
   // Everything the API does not send: the curve, the drawdown, the averages.
   const roll = useMemo(() => rollup(view.days), [view]);
@@ -306,10 +317,14 @@ export default function TradeJournalClient({
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error ?? `settle failed (${res.status})`);
       const n = j?.data?.settled ?? 0;
+      // Settlement grades a session that is over, so before the square-off it leaves today alone
+      // — which used to come back as a bare "nothing was outstanding" while positions sat open.
       setSettleNote(
         n
           ? `${plural(n, "trade")} settled from the contract's candles.`
-          : (j?.note ?? "Nothing was outstanding."),
+          : isMarketOpen()
+            ? `Today settles after ${sessionClock(view.config.squareOffMin)}. To close open positions now, use Exit all.`
+            : (j?.note ?? "Nothing was outstanding."),
       );
       await load();
     } catch (e) {
@@ -317,7 +332,44 @@ export default function TradeJournalClient({
     } finally {
       setSettling(false);
     }
-  }, [load]);
+  }, [load, view.config.squareOffMin]);
+
+  /**
+   * Sell every open position of the day at its live bid, one confirm for the lot.
+   *
+   * Rows the feed cannot price are left open and named, rather than sold at an invented figure —
+   * the same refusal the single exit makes, so the operator knows which ones to close by hand.
+   */
+  const exitAll = useCallback(async () => {
+    if (!window.confirm(`Sell all ${plural(openToday, "open position")} at the live bid now?`)) return;
+    setExitingAll(true);
+    setExitAllNote(null);
+    try {
+      const res = await fetch("/api/momentum/journal/exit-all", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error ?? `exit all failed (${res.status})`);
+      const results: Array<{ symbol: string; ok: boolean; netPnl: number | null; error: string | null }> =
+        j?.data?.results ?? [];
+      const sold = results.filter((r) => r.ok);
+      const refused = results.filter((r) => !r.ok);
+      const net = sold.reduce((s, r) => s + (r.netPnl ?? 0), 0);
+      setExitAllNote(
+        !results.length
+          ? (j?.note ?? "No open positions today.")
+          : [
+              sold.length ? `Sold ${plural(sold.length, "position")}, net ${inr(net, true)}.` : "",
+              refused.length
+                ? `Still open: ${refused.map((r) => `${r.symbol} (${r.error})`).join("; ")}.`
+                : "",
+            ].filter(Boolean).join(" "),
+      );
+      await load();
+    } catch (e) {
+      setExitAllNote((e as Error).message);
+    } finally {
+      setExitingAll(false);
+    }
+  }, [load, openToday]);
 
   const today = istToday();
   const t = view.totals;
@@ -559,6 +611,35 @@ export default function TradeJournalClient({
         <Notice tone="bad">
           The journal is switched off — set <code>JOURNAL=on</code> in <code>api/.env</code>. Nothing
           new is being recorded while it stays off.
+        </Notice>
+      )}
+
+      {(openToday > 0 || exitAllNote) && (
+        <Notice
+          tone="warn"
+          action={
+            openToday > 0 && (
+              <button
+                onClick={() => void exitAll()}
+                disabled={exitingAll}
+                className="px-3.5 py-2 rounded-xl bg-bear text-white text-[12.5px] font-semibold
+                           hover:brightness-110 disabled:opacity-50 transition"
+              >
+                {exitingAll ? "Selling…" : `Exit all ${openToday}`}
+              </button>
+            )
+          }
+        >
+          {openToday > 0 ? (
+            <>
+              <span className="text-amber-400 font-medium">{plural(openToday, "position")}</span>{" "}
+              {openToday === 1 ? "is" : "are"} open today. Exit all sells each at its live bid and records
+              it as your exit. Nothing is sent to your broker.
+            </>
+          ) : (
+            "No open positions today."
+          )}
+          {exitAllNote && <span className="block text-muted mt-1">{exitAllNote}</span>}
         </Notice>
       )}
 
